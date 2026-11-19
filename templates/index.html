@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Электронная библиотека Коркыт ата</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Шапка с поиском и переключателем языка (всегда сверху) -->
+    <header class="topbar">
+        <a class="logo" href="#/catalog">
+            <span class="book-icon">📚</span>
+            <span data-i18n="app_title">Электронная библиотека</span>
+        </a>
+        <nav class="nav" id="nav">
+            <a href="#/catalog" data-i18n="nav_catalog">Каталог</a>
+            <a href="#/shelf" data-i18n="nav_shelf" data-auth>Моя полка</a>
+            <a href="#/stats" data-i18n="nav_stats">Статистика</a>
+            <a href="#/admin" data-i18n="nav_admin" data-perm="admin">Админ-панель</a>
+        </nav>
+        <div class="search-box">
+            <span>🔍</span>
+            <input id="global-search" type="search"
+                   data-i18n-ph="search_placeholder" placeholder="Поиск…">
+        </div>
+        <div class="topbar-right">
+            <div class="lang-switch">
+                <select id="lang-select" aria-label="Язык">
+                    <option value="ru">Рус</option>
+                    <option value="kk">Қаз</option>
+                    <option value="en">Eng</option>
+                </select>
+            </div>
+            <button class="icon-btn" id="theme-toggle" title="Тема">🌙</button>
+            <span id="auth-area"></span>
+        </div>
+    </header>
+
+    <main class="container">
+        <div id="app"></div>
+    </main>
+
+    <!-- Модальное окно входа/регистрации -->
+    <div class="modal-overlay" id="auth-modal">
+        <div class="modal">
+            <div class="modal-tabs">
+                <button class="tab active" data-authtab="login"
+                        data-i18n="nav_login">Войти</button>
+                <button class="tab" data-authtab="register"
+                        data-i18n="nav_register">Регистрация</button>
+            </div>
+            <form id="auth-form">
+                <div class="field">
+                    <label data-i18n="label_username">Логин</label>
+                    <input name="username" required minlength="3">
+                </div>
+                <div class="field" data-register>
+                    <label data-i18n="label_email">Эл. почта</label>
+                    <input name="email" type="email">
+                </div>
+                <div class="field">
+                    <label data-i18n="label_password">Пароль</label>
+                    <input name="password" type="password" required minlength="8">
+                </div>
+                <button class="btn btn-primary" style="width:100%" type="submit"
+                        id="auth-submit" data-i18n="nav_login">Войти</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Универсальное модальное окно (добавление книги и т.п.) -->
+    <div class="modal-overlay" id="generic-modal">
+        <div class="modal" id="generic-modal-content"></div>
+    </div>
+
+    <div id="toasts"></div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
