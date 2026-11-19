@@ -1,0 +1,30 @@
+# Виртуальное окружение
+.venv/
+venv/
+env/
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Базы данных и секреты (не хранятся в репозитории — раздел 5.4)
+*.sqlite
+*.sqlite3
+*.db
+instance/
+.env
+secrets.*
+
+# Отчёты о покрытии
+*.cover
+htmlcov/
+.coverage
+
+# Служебные файлы ОС и редакторов
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
