@@ -28,3 +28,6 @@ htmlcov/
 Thumbs.db
 .idea/
 .vscode/
+
+# Логи запуска
+*.log
