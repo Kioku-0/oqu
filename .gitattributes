@@ -1,0 +1,11 @@
+# Единые переводы строк (LF) во всех текстовых файлах репозитория.
+* text=auto eol=lf
+# Файлы Windows оставляем с CRLF, иначе cmd.exe читает их неправильно.
+*.bat text eol=crlf
+# Двоичные файлы не трогаем.
+*.png binary
+*.jpg binary
+*.pdf binary
+*.docx binary
+*.pptx binary
+*.sqlite binary
