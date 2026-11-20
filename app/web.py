@@ -56,6 +56,10 @@ MAX_PDF_BYTES = 40 * 1024 * 1024        # скан книги — до 40 МБ
 MAX_IMAGE_BYTES = 5 * 1024 * 1024       # фото студбилета — до 5 МБ
 LOGIN_RATE_LIMIT = 10                   # попыток входа с одного IP...
 LOGIN_RATE_WINDOW = 60                  # ...за столько секунд
+# Публичный режим (сайт открыт в интернет через туннель): скрыть подсказку
+# с демо-аккаунтами и паролем, доверять заголовку с IP от туннеля.
+PUBLIC_MODE = os.environ.get("OQU_PUBLIC") == "1"
+TRUST_PROXY = os.environ.get("OQU_TRUST_PROXY") == "1"
 
 for _folder in (UPLOAD_DIR, os.path.join(UPLOAD_DIR, "books"),
                 os.path.join(UPLOAD_DIR, "students"), LOG_DIR):
@@ -132,7 +136,20 @@ def get_db():
 
 
 def client_ip(request: Request) -> str:
-    return request.client.host if request.client else ""
+    """IP-адрес посетителя (для журнала и лимита попыток входа).
+
+    За туннелем Cloudflare все запросы приходят с 127.0.0.1, поэтому при
+    ``OQU_TRUST_PROXY=1`` берём настоящий адрес из заголовка, который
+    добавляет Cloudflare. Заголовку верим только от локального туннеля:
+    снаружи его можно подделать.
+    """
+    host = request.client.host if request.client else ""
+    if TRUST_PROXY and host in ("127.0.0.1", "::1"):
+        real = (request.headers.get("cf-connecting-ip")
+                or request.headers.get("x-forwarded-for", "").split(",")[0])
+        if real.strip():
+            return real.strip()[:45]
+    return host
 
 
 def get_current_user(
@@ -968,4 +985,6 @@ def index():
     with open(os.path.join(TEMPLATES_DIR, "index.html"),
               encoding="utf-8") as fh:
         html = fh.read().replace("{{v}}", _asset_version())
+    if PUBLIC_MODE:
+        html = html.replace("<html ", '<html data-public="1" ', 1)
     return HTMLResponse(html, headers={"Cache-Control": "no-cache"})

@@ -477,6 +477,8 @@ const DEMO_ACCOUNTS = [
     ["reader01", "user", ""], ["applicant01", "user", "demo.applicant"],
     ["spammer01", "user", "demo.banned_temp"], ["banned01", "user", "demo.banned_forever"],
 ];
+// В публичном режиме (сайт открыт в интернет) список и пароль не показываем.
+const PUBLIC_MODE = document.documentElement.dataset.public === "1";
 function openAuth(mode = "login", next = null) {
     const isLogin = mode === "login";
     const card = openModal(`
@@ -502,7 +504,7 @@ function openAuth(mode = "login", next = null) {
             <span>${t("auth.accept", { terms: `<a href="#/terms" target="_blank">${esc(t("auth.accept_terms"))}</a>`, privacy: `<a href="#/privacy" target="_blank">${esc(t("auth.accept_privacy"))}</a>` })}</span></label>`}
           <button class="btn primary block lg" id="auth-submit">${esc(t(isLogin ? "auth.login" : "auth.register_btn"))}</button>
         </form>
-        ${isLogin ? `<details class="demo-accounts"><summary>${esc(t("auth.demo"))} ${esc(t("auth.demo_hint"))}</summary>
+        ${isLogin && !PUBLIC_MODE ? `<details class="demo-accounts"><summary>${esc(t("auth.demo"))} ${esc(t("auth.demo_hint"))}</summary>
           <div class="demo-grid">${DEMO_ACCOUNTS.map(([n, role, note]) => `<button type="button" data-demo="${n}">
             <b>${n}</b><span>${esc(t("role." + role))}${note ? " · " + esc(t(note)) : ""}</span></button>`).join("")}</div>
           <div>${esc(t("auth.demo_pass"))} <code>ChangeMe_2026</code></div></details>` : ""}`);
