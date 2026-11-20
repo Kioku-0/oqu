@@ -12,6 +12,7 @@ import sys
 
 TARGETS = [
     os.path.abspath("app/service.py"),
+    os.path.abspath("app/profanity.py"),
     os.path.abspath("app/security.py"),
     os.path.abspath("app/db.py"),
 ]
