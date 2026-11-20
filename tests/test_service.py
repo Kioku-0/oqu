@@ -794,6 +794,20 @@ def test_owner_has_all_permissions():
     assert service.permissions_of("guest") == ["book.read_free"]
 
 
+def test_create_owner_from_env(tmp_path, monkeypatch):
+    from app import seed
+    monkeypatch.setattr(seed, "DB_PATH", str(tmp_path / "prod.sqlite"))
+    monkeypatch.setenv("OQU_OWNER_USERNAME", "admin")
+    monkeypatch.setenv("OQU_OWNER_EMAIL", "admin@ex.kz")
+    monkeypatch.setenv("OQU_OWNER_PASSWORD", "Secret123")
+    seed.create_owner()
+    seed.create_owner()                      # второй раз — без дубликата
+    db = connect(str(tmp_path / "prod.sqlite"))
+    rows = db.execute("SELECT username, role FROM users").fetchall()
+    db.close()
+    assert [tuple(r) for r in rows] == [("admin", "owner")]
+
+
 def test_set_book_tags_limit(db):
     bid = service.add_book(db, "owner", "Книга", "Автор")
     with pytest.raises(service.ValidationError):

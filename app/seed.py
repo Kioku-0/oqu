@@ -358,7 +358,37 @@ def _demo_student_card() -> str:
     return name
 
 
+def create_owner() -> None:
+    """Создать главного разработчика на рабочем сервере (без демо-данных).
+
+    Данные берутся из переменных окружения OQU_OWNER_USERNAME,
+    OQU_OWNER_EMAIL и OQU_OWNER_PASSWORD, чтобы пароль не попал в историю
+    команд оболочки.
+    """
+    username = os.environ.get("OQU_OWNER_USERNAME", "")
+    email = os.environ.get("OQU_OWNER_EMAIL", "")
+    password = os.environ.get("OQU_OWNER_PASSWORD", "")
+    if not (username and email and password):
+        print("Задайте OQU_OWNER_USERNAME, OQU_OWNER_EMAIL, "
+              "OQU_OWNER_PASSWORD")
+        raise SystemExit(1)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    db = connect(DB_PATH)
+    try:
+        if db.execute("SELECT 1 FROM users WHERE role = 'owner'").fetchone():
+            print("Главный разработчик уже есть — ничего не меняю.")
+            return
+        service.register_user(db, username, email, password, role="owner",
+                              display_name=username)
+        print(f"Создан главный разработчик «{username}».")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
-    if "--reset" in sys.argv:
-        _reset()
-    seed()
+    if "--create-owner" in sys.argv:
+        create_owner()
+    else:
+        if "--reset" in sys.argv:
+            _reset()
+        seed()
