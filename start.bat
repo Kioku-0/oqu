@@ -3,16 +3,18 @@ chcp 65001 >nul
 cd /d "%~dp0"
 title Электронная библиотека Коркыт ата
 
-rem --- Поиск Python -----------------------------------------------------
-where py >nul 2>nul
-if %errorlevel%==0 (set "PY=py") else (set "PY=python")
+rem --- Поиск Python: сначала по реестру (официальные установщики и
+rem --- менеджер Python), затем через команды py / python ------------------
+set "PY="
+for /f "tokens=2,*" %%A in ('reg query "HKCU\Software\Python\PythonCore" /s /v ExecutablePath 2^>nul ^| findstr /i "ExecutablePath"') do set "PY=%%B"
+if not defined PY for /f "tokens=2,*" %%A in ('reg query "HKLM\Software\Python\PythonCore" /s /v ExecutablePath 2^>nul ^| findstr /i "ExecutablePath"') do set "PY=%%B"
+if not defined PY (py --version >nul 2>nul && set "PY=py")
+if not defined PY (python --version >nul 2>nul && set "PY=python")
 
-echo === SETUP START === > setup.log
-%PY% --version >> setup.log 2>&1
-if not %errorlevel%==0 (
-  echo PYTHON_NOT_FOUND >> setup.log
-  echo [ОШИБКА] Python не найден. Установите Python 3.11+ с python.org
-  echo и поставьте галочку "Add Python to PATH".
+if not defined PY (
+  echo [ОШИБКА] Python не найден.
+  echo Установите Python 3.11+ с https://www.python.org/downloads/
+  echo и поставьте галочку "Add python.exe to PATH".
   pause
   exit /b 1
 )
@@ -20,17 +22,19 @@ if not %errorlevel%==0 (
 echo ===========================================================
 echo        ЭЛЕКТРОННАЯ БИБЛИОТЕКА - ЗАПУСК
 echo ===========================================================
+echo Python: %PY%
 echo.
-echo [1/3] Установка зависимостей (только в первый раз, подождите)...
-echo [pip install] >> setup.log
-%PY% -m pip install --disable-pip-version-check -r requirements.txt >> setup.log 2>&1
+echo [1/3] Проверка зависимостей (в первый раз - около минуты)...
+"%PY%" -m pip install --quiet --disable-pip-version-check --no-warn-script-location -r requirements.txt > setup.log 2>&1
+if not %errorlevel%==0 (
+  echo [ОШИБКА] Не удалось установить зависимости. Подробности в setup.log
+  pause
+  exit /b 1
+)
 
 echo [2/3] Подготовка базы данных...
-echo [seed] >> setup.log
-%PY% -m app.seed >> setup.log 2>&1
+"%PY%" -m app.seed
 
-echo === SETUP DONE === >> setup.log
-echo.
 echo [3/3] Запуск сервера...
 echo ===========================================================
 echo   Сайт:        http://127.0.0.1:8000
@@ -38,10 +42,6 @@ echo   Документы:   http://127.0.0.1:8000/docs
 echo   Вход:        muhan / ChangeMe_2026
 echo   Остановить:  закройте это окно
 echo ===========================================================
-
-rem Открыть сайт в браузере через 5 секунд (сервер успеет подняться)
-start "" cmd /c "timeout /t 5 >nul & start msedge http://127.0.0.1:8000"
-
-echo === SERVER START === >> setup.log
-%PY% -m uvicorn app.web:app >> setup.log 2>&1
+start "" cmd /c "timeout /t 5 >nul & start http://127.0.0.1:8000"
+"%PY%" -m uvicorn app.web:app
 pause
