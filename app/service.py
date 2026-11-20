@@ -1,17 +1,16 @@
-"""Бизнес-логика библиотеки (не зависит от веб-фреймворка).
+"""Бизнес-логика библиотеки «Оқу» (не зависит от веб-фреймворка).
 
 Это файл ``service.py`` из структуры методички (раздел 5.3) — «бизнес-логика
 без интерфейса». Все функции принимают уже открытое соединение с базой данных
 (:func:`app.db.connect`) и ничего не знают про HTTP, FastAPI или шаблоны.
-Благодаря этому логику можно:
+Поэтому логику можно:
 
 * полностью покрыть автотестами без запуска сервера (раздел 5.5);
 * подключить к любому интерфейсу — веб, настольному или мобильному.
 
-Ключевые идеи безопасности (раздел 5.4): запросы параметризованы, пароли
-хранятся только в виде хэша (см. :mod:`app.security`), входные данные
-проверяются, а права доступа реализованы по **принципу наименьших
-привилегий**.
+Безопасность (раздел 5.4): запросы параметризованы, пароли хранятся только
+в виде хэша (:mod:`app.security`), входные данные проверяются, права доступа
+построены по **принципу наименьших привилегий**.
 """
 
 from __future__ import annotations
@@ -19,28 +18,38 @@ from __future__ import annotations
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
-from app import security
+from app import profanity, security
 from app.db import DATETIME_FMT
 
 # ---------------------------------------------------------------------------
-# Константы (вынесены, чтобы не было «магических чисел» — раздел 5.2)
+# Константы (без «магических чисел» — раздел 5.2)
 # ---------------------------------------------------------------------------
 MIN_PASSWORD_LEN = 8
+MAX_PASSWORD_LEN = 128
 MAX_COMMENT_LEN = 2000
+MAX_NOTE_LEN = 500
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
-USERNAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁё0-9_.-]{3,32}$")
+MAX_TAGS_PER_BOOK = 10
+USERNAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁёӘәҒғҚқҢңӨөҰұҮүҺһІі0-9_.-]{3,32}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+LANGUAGES = ("ru", "kk", "en")
 
-VALID_ROLES = ("owner", "editor", "author", "moderator", "student", "user", "guest")
+AGREEMENT_VERSION = "1.0 от 20.11.2026"
+
+VALID_ROLES = ("owner", "editor", "author", "moderator", "student", "user",
+               "guest")
+ASSIGNABLE_ROLES = ("editor", "author", "moderator", "student", "user")
 SHELF_STATUSES = ("reading", "want", "dropped", "read")
+BOOK_SORTS = ("title", "author", "year", "created_at", "rating", "popular")
 
 
 # ---------------------------------------------------------------------------
-# Иерархия исключений. Интерфейс перехватывает их и показывает понятное
-# сообщение вместо аварийного завершения (та же идея, что BookingError).
+# Исключения. Интерфейс перехватывает их и показывает понятное сообщение
+# вместо аварийного завершения (та же идея, что BookingError в методичке).
 # ---------------------------------------------------------------------------
 class ServiceError(Exception):
     """Базовая ошибка бизнес-логики."""
@@ -58,62 +67,57 @@ class AuthError(ServiceError):
     """Неверный логин или пароль."""
 
 
-class AccountLocked(ServiceError):
+class AccountLockedError(ServiceError):
     """Аккаунт временно заблокирован из-за подбора пароля."""
 
 
-class Banned(ServiceError):
-    """Пользователь забанен."""
+class BannedError(ServiceError):
+    """Пользователь забанен. Хранит причину и срок бана."""
+
+    def __init__(self, message: str, reason: str = "",
+                 until: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.until = until
 
 
-class PermissionDenied(ServiceError):
+class PermissionDeniedError(ServiceError):
     """Недостаточно прав для действия."""
 
 
-class Conflict(ServiceError):
+class ConflictError(ServiceError):
     """Конфликт данных (например, дубликат)."""
 
 
 # ---------------------------------------------------------------------------
-# Права доступа: принцип наименьших привилегий (пункт 23 ТЗ пользователя)
+# Права доступа: принцип наименьших привилегий
 # ---------------------------------------------------------------------------
-# Каждому действию соответствует строка-право. Роли получают минимально
-# необходимый набор прав. Роль owner имеет все права (проверяется отдельно).
+_READER = {"book.read_free", "comment.write", "comment.edit_own",
+           "comment.delete_own", "shelf.manage", "progress.save",
+           "rating.set", "book.buy", "student.apply"}
+
 PERMISSIONS: dict[str, set[str]] = {
+    # Гость (без входа) только читает бесплатные книги.
     "guest": {"book.read_free"},
-    "user": {
-        "book.read_free", "comment.write", "comment.delete_own",
-        "shelf.manage", "progress.save",
-    },
-    "student": {
-        "book.read_free", "book.read_paid", "comment.write",
-        "comment.delete_own", "shelf.manage", "progress.save",
-    },
-    "author": {
-        "book.read_free", "book.add", "comment.write", "comment.delete_own",
-        "shelf.manage", "progress.save",
-    },
-    "moderator": {
-        "book.read_free", "comment.write", "comment.delete_own",
-        "comment.delete_any", "shelf.manage", "progress.save",
-        "user.ban", "user.verify_student", "log.read", "unban.manage",
-    },
-    "editor": {
-        "book.read_free", "book.read_paid", "book.add", "book.edit",
-        "book.delete", "comment.write", "comment.delete_own",
-        "comment.delete_any", "shelf.manage", "progress.save",
-    },
-    # owner получает все права динамически (см. has_permission).
+    "user": set(_READER),
+    "student": (_READER - {"student.apply"}) | {"book.read_paid"},
+    # Автор добавляет книги и управляет только своими.
+    "author": _READER | {"book.add", "book.edit_own", "book.delete_own"},
+    # Модератор работает с людьми и комментариями, но не с книгами.
+    "moderator": _READER | {"comment.delete_any", "user.list", "user.ban",
+                            "user.verify_student", "log.read",
+                            "unban.manage"},
+    # Редактор работает с книгами и комментариями к ним.
+    "editor": _READER | {"book.read_paid", "book.add", "book.edit",
+                         "book.delete", "comment.delete_any"},
+    # Главный разработчик получает все права (см. has_permission).
     "owner": set(),
 }
 
-# Приписка к комментарию в зависимости от роли (пункты 71–75 ТЗ пользователя).
-ROLE_BADGE = {
-    "owner": "Главный разработчик",
-    "editor": "Редактор",
-    "author": "Автор",
-    "moderator": "Модератор",
-}
+# Приписка к комментарию хранится кодом, а текст подставляет интерфейс на
+# выбранном языке. "author_own" — автор пишет под своей книгой.
+ROLE_BADGE = {"owner": "owner", "editor": "editor", "author": "author",
+              "moderator": "moderator"}
 
 
 def has_permission(role: str, permission: str) -> bool:
@@ -124,9 +128,19 @@ def has_permission(role: str, permission: str) -> bool:
 
 
 def require_permission(role: str, permission: str) -> None:
-    """Выбросить :class:`PermissionDenied`, если у роли нет права."""
+    """Выбросить :class:`PermissionDeniedError`, если у роли нет права."""
     if not has_permission(role, permission):
-        raise PermissionDenied(f"Недостаточно прав для действия: {permission}")
+        raise PermissionDeniedError(f"Недостаточно прав: {permission}")
+
+
+def permissions_of(role: str) -> list[str]:
+    """Список прав роли (интерфейс по нему показывает или прячет кнопки)."""
+    if role == "owner":
+        every: set[str] = set()
+        for perms in PERMISSIONS.values():
+            every |= perms
+        return sorted(every | {"user.assign_role", "user.delete"})
+    return sorted(PERMISSIONS.get(role, set()))
 
 
 # ---------------------------------------------------------------------------
@@ -144,78 +158,138 @@ def _parse(value: str) -> datetime:
     return datetime.strptime(value, DATETIME_FMT).replace(tzinfo=timezone.utc)
 
 
+def _clamp_page(page: int, page_size: int) -> tuple[int, int]:
+    """Нормализовать номер и размер страницы для постраничного вывода."""
+    page = max(1, int(page))
+    page_size = max(1, min(int(page_size), MAX_PAGE_SIZE))
+    return page, page_size
+
+
+def _paginate(db: sqlite3.Connection, select_sql: str, count_sql: str,
+              args: list[Any], page: int, page_size: int) -> dict[str, Any]:
+    """Выполнить запрос постранично и вернуть стандартный словарь страницы."""
+    page, page_size = _clamp_page(page, page_size)
+    total = db.execute(count_sql, args).fetchone()[0]
+    rows = db.execute(select_sql + " LIMIT ? OFFSET ?",
+                      (*args, page_size, (page - 1) * page_size)).fetchall()
+    return {"items": [dict(r) for r in rows], "total": total, "page": page,
+            "page_size": page_size,
+            "pages": (total + page_size - 1) // page_size}
+
+
 # ---------------------------------------------------------------------------
-# Журнал действий пользователей с временными метками (УСЛОЖНЕНИЕ варианта 11)
+# Журнал действий с временными метками (УСЛОЖНЕНИЕ варианта 11)
 # ---------------------------------------------------------------------------
 def log_action(db: sqlite3.Connection, user_id: Optional[int], action: str,
                details: str = "", ip: str = "") -> int:
-    """Записать действие пользователя в журнал с временной меткой."""
+    """Записать действие пользователя в журнал с временной меткой (UTC)."""
     cur = db.execute(
         "INSERT INTO action_log(user_id, action, details, ip, created_at) "
         "VALUES (?, ?, ?, ?, ?)",
-        (user_id, action, details, ip, _now_str()),
+        (user_id, action[:100], details[:500], ip[:64], _now_str()),
     )
     db.commit()
     return cur.lastrowid
 
 
-def list_log(db: sqlite3.Connection, limit: int = 100,
-             user_id: Optional[int] = None) -> list[sqlite3.Row]:
-    """Вернуть последние записи журнала (при необходимости — по пользователю)."""
-    limit = max(1, min(int(limit), 1000))
-    if user_id is None:
-        rows = db.execute(
-            "SELECT * FROM action_log ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
-    else:
-        rows = db.execute(
-            "SELECT * FROM action_log WHERE user_id = ? ORDER BY id DESC LIMIT ?",
-            (user_id, limit),
-        ).fetchall()
-    return rows
+LOG_RETENTION_DAYS = 365
+
+
+def purge_old_log(db: sqlite3.Connection,
+                  days: int = LOG_RETENTION_DAYS) -> int:
+    """Удалить записи журнала старше ``days`` дней (срок хранения из
+    Политики конфиденциальности). Возвращает число удалённых записей."""
+    border = (_now() - timedelta(days=int(days))).strftime(DATETIME_FMT)
+    cur = db.execute("DELETE FROM action_log WHERE created_at < ?", (border,))
+    db.commit()
+    return cur.rowcount
+
+
+def list_log(db: sqlite3.Connection, *, page: int = 1, page_size: int = 50,
+             user_id: Optional[int] = None, action: str = "",
+             date_from: str = "", date_to: str = "") -> dict[str, Any]:
+    """Вернуть журнал постранично, с фильтрами по пользователю, типу и дате.
+
+    ``date_from``/``date_to`` — строки ``ГГГГ-ММ-ДД`` (включительно).
+    """
+    where, args = [], []
+    if user_id is not None:
+        where.append("l.user_id = ?")
+        args.append(int(user_id))
+    if action:
+        where.append("LOWER(l.action) LIKE ?")
+        args.append(f"%{action.strip().lower()}%")
+    if date_from:
+        where.append("l.created_at >= ?")
+        args.append(f"{date_from} 00:00:00")
+    if date_to:
+        where.append("l.created_at <= ?")
+        args.append(f"{date_to} 23:59:59")
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    return _paginate(
+        db,
+        "SELECT l.*, u.username FROM action_log l "
+        f"LEFT JOIN users u ON u.id = l.user_id{clause} ORDER BY l.id DESC",
+        f"SELECT COUNT(*) FROM action_log l{clause}",
+        args, page, page_size)
 
 
 # ---------------------------------------------------------------------------
 # Пользователи и аутентификация
 # ---------------------------------------------------------------------------
-def register_user(db: sqlite3.Connection, username: str, email: str,
-                  password: str, role: str = "user",
-                  language: str = "ru", display_name: str = "") -> int:
-    """Зарегистрировать нового пользователя.
+def _check_password(password: str) -> None:
+    if not isinstance(password, str) or \
+            not MIN_PASSWORD_LEN <= len(password) <= MAX_PASSWORD_LEN:
+        raise ValidationError(
+            f"Пароль: от {MIN_PASSWORD_LEN} до {MAX_PASSWORD_LEN} символов")
+    if not (re.search(r"[^\W\d_]", password) and re.search(r"\d", password)):
+        raise ValidationError("Пароль должен содержать буквы и цифры")
 
-    Проверяет корректность логина, почты и длины пароля; пароль сохраняется
-    только в виде хэша. Дубликат логина или почты даёт :class:`Conflict`.
+
+def register_user(db: sqlite3.Connection, username: str, email: str,
+                  password: str, role: str = "user", language: str = "ru",
+                  display_name: str = "",
+                  accept_terms: bool = True) -> int:
+    """Зарегистрировать пользователя.
+
+    Регистрация возможна только с согласием с пользовательским соглашением
+    (``accept_terms``): дата и редакция соглашения сохраняются — так согласие
+    можно подтвердить (Закон РК «О персональных данных и их защите»).
     """
+    if not accept_terms:
+        raise ValidationError("Необходимо принять пользовательское соглашение")
     username = (username or "").strip()
     email = (email or "").strip().lower()
     if not USERNAME_RE.match(username):
         raise ValidationError(
-            "Логин: 3–32 символа, буквы/цифры/._- без пробелов"
-        )
-    if not EMAIL_RE.match(email):
+            "Логин: 3–32 символа — буквы, цифры, точка, _ или -")
+    if not EMAIL_RE.match(email) or len(email) > 254:
         raise ValidationError("Некорректный адрес электронной почты")
-    if not isinstance(password, str) or len(password) < MIN_PASSWORD_LEN:
-        raise ValidationError(
-            f"Пароль должен быть не короче {MIN_PASSWORD_LEN} символов"
-        )
+    _check_password(password)
     if role not in VALID_ROLES or role == "guest":
         raise ValidationError("Недопустимая роль")
+    if language not in LANGUAGES:
+        raise ValidationError("Поддерживаются языки ru, kk, en")
+    display_name = (display_name or username).strip()[:64]
     try:
         cur = db.execute(
-            "INSERT INTO users(username, email, password_hash, role, language, "
-            "display_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users(username, email, password_hash, role, language,"
+            " display_name, agreed_at, agreement_ver, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (username, email, security.hash_password(password), role,
-             language, display_name or username, _now_str()),
+             language, display_name, _now_str(), AGREEMENT_VERSION,
+             _now_str()),
         )
         db.commit()
     except sqlite3.IntegrityError:
-        raise Conflict("Пользователь с таким логином или почтой уже существует")
+        raise ConflictError("Пользователь с таким логином или почтой уже есть")
     return cur.lastrowid
 
 
 def get_user(db: sqlite3.Connection, user_id: int) -> sqlite3.Row:
-    """Вернуть пользователя по идентификатору или выбросить :class:`NotFoundError`."""
-    row = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    """Вернуть пользователя по id или выбросить :class:`NotFoundError`."""
+    row = db.execute("SELECT * FROM users WHERE id = ?",
+                     (user_id,)).fetchone()
     if row is None:
         raise NotFoundError("Пользователь не найден")
     return row
@@ -223,441 +297,874 @@ def get_user(db: sqlite3.Connection, user_id: int) -> sqlite3.Row:
 
 def get_user_by_username(db: sqlite3.Connection,
                          username: str) -> Optional[sqlite3.Row]:
-    """Вернуть пользователя по логину или ``None``."""
+    """Вернуть пользователя по логину (без учёта регистра) или ``None``."""
     return db.execute(
-        "SELECT * FROM users WHERE username = ?", ((username or "").strip(),)
-    ).fetchone()
+        "SELECT * FROM users WHERE LOWER(username) = ?",
+        ((username or "").strip().lower(),)).fetchone()
+
+
+def _check_credentials(db: sqlite3.Connection, username: str,
+                       password: str) -> sqlite3.Row:
+    """Проверить логин и пароль с защитой от подбора (брутфорса).
+
+    После :data:`security.MAX_FAILED_ATTEMPTS` неудач подряд вход
+    блокируется на :data:`security.LOCKOUT_MINUTES` минут.
+    """
+    user = get_user_by_username(db, username)
+    if user is None:
+        # Хэшируем «впустую», чтобы по времени ответа нельзя было узнать,
+        # существует ли такой логин (защита от перебора логинов).
+        security.verify_password(password or "", security.DUMMY_HASH)
+        raise AuthError("Неверный логин или пароль")
+
+    if user["locked_until"] and _parse(user["locked_until"]) > _now():
+        raise AccountLockedError("Слишком много попыток. Повторите позже.")
+
+    if not security.verify_password(password or "", user["password_hash"]):
+        attempts = user["failed_attempts"] + 1
+        locked_until = None
+        if attempts >= security.MAX_FAILED_ATTEMPTS:
+            locked_until = (_now() + timedelta(
+                minutes=security.LOCKOUT_MINUTES)).strftime(DATETIME_FMT)
+            attempts = 0
+        db.execute(
+            "UPDATE users SET failed_attempts = ?, locked_until = ? "
+            "WHERE id = ?", (attempts, locked_until, user["id"]))
+        db.commit()
+        if locked_until:
+            raise AccountLockedError("Слишком много попыток. Повторите позже.")
+        raise AuthError("Неверный логин или пароль")
+
+    db.execute("UPDATE users SET failed_attempts = 0, locked_until = NULL "
+               "WHERE id = ?", (user["id"],))
+    db.commit()
+    return get_user(db, user["id"])
 
 
 def authenticate(db: sqlite3.Connection, username: str,
                  password: str) -> sqlite3.Row:
-    """Проверить логин и пароль с защитой от подбора (брутфорса).
+    """Войти: проверить пароль и отсутствие активного бана."""
+    user = _check_credentials(db, username, password)
+    ban = active_ban(db, user["id"])
+    if ban is not None:
+        raise BannedError("Аккаунт заблокирован", ban["reason"], ban["until"])
+    return user
 
-    После :data:`security.MAX_FAILED_ATTEMPTS` неудач подряд аккаунт
-    блокируется на :data:`security.LOCKOUT_MINUTES` минут. Успешный вход
-    сбрасывает счётчик. Забаненный пользователь войти не может.
-    """
-    user = get_user_by_username(db, username)
-    if user is None:
-        raise AuthError("Неверный логин или пароль")
 
-    # Проверка активной блокировки за брутфорс.
-    if user["locked_until"]:
-        if _parse(user["locked_until"]) > _now():
-            raise AccountLocked(
-                "Слишком много попыток. Повторите позже."
-            )
-
-    if not security.verify_password(password, user["password_hash"]):
-        attempts = user["failed_attempts"] + 1
-        locked_until = None
-        if attempts >= security.MAX_FAILED_ATTEMPTS:
-            locked_until = (
-                _now() + timedelta(minutes=security.LOCKOUT_MINUTES)
-            ).strftime(DATETIME_FMT)
-            attempts = 0  # сбрасываем счётчик, фиксируем факт блокировки
-        db.execute(
-            "UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?",
-            (attempts, locked_until, user["id"]),
-        )
-        db.commit()
-        if locked_until:
-            raise AccountLocked("Слишком много попыток. Повторите позже.")
-        raise AuthError("Неверный логин или пароль")
-
-    # Успех: сбрасываем счётчик и снимаем блокировку.
-    db.execute(
-        "UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?",
-        (user["id"],),
-    )
+def change_password(db: sqlite3.Connection, user_id: int, old: str,
+                    new: str) -> None:
+    """Сменить пароль, подтвердив старый."""
+    user = get_user(db, user_id)
+    if not security.verify_password(old or "", user["password_hash"]):
+        raise AuthError("Текущий пароль указан неверно")
+    _check_password(new)
+    db.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+               (security.hash_password(new), user_id))
     db.commit()
 
-    if is_banned(db, user["id"]):
-        raise Banned("Аккаунт заблокирован (бан)")
-    return get_user(db, user["id"])
+
+def update_profile(db: sqlite3.Connection, user_id: int,
+                   display_name: str) -> None:
+    """Изменить отображаемое имя."""
+    display_name = (display_name or "").strip()
+    if not 1 <= len(display_name) <= 64:
+        raise ValidationError("Имя: от 1 до 64 символов")
+    get_user(db, user_id)
+    db.execute("UPDATE users SET display_name = ? WHERE id = ?",
+               (display_name, user_id))
+    db.commit()
+
+
+def delete_account(db: sqlite3.Connection, user_id: int,
+                   password: str) -> None:
+    """Удалить собственный аккаунт (с подтверждением паролем).
+
+    Удаляются профиль, полки, прогресс, оценки и комментарии пользователя
+    (каскадно). Главного разработчика удалить нельзя — иначе система
+    останется без администратора.
+    """
+    user = get_user(db, user_id)
+    if not security.verify_password(password or "", user["password_hash"]):
+        raise AuthError("Пароль указан неверно")
+    if user["role"] == "owner":
+        raise PermissionDeniedError(
+            "Аккаунт главного разработчика удалить нельзя")
+    db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    db.commit()
+
+
+def admin_delete_user(db: sqlite3.Connection, actor: sqlite3.Row,
+                      target_id: int) -> None:
+    """Удалить чужой аккаунт (только главный разработчик)."""
+    if actor["role"] != "owner":
+        raise PermissionDeniedError("Удалять аккаунты может только владелец")
+    target = get_user(db, target_id)
+    if target["role"] == "owner":
+        raise PermissionDeniedError("Нельзя удалить главного разработчика")
+    db.execute("DELETE FROM users WHERE id = ?", (target_id,))
+    db.commit()
 
 
 def assign_role(db: sqlite3.Connection, actor_role: str, target_id: int,
                 new_role: str) -> None:
-    """Назначить пользователю роль (требует права ``user.assign_role``)."""
+    """Назначить роль (только главный разработчик)."""
     if actor_role != "owner":
-        raise PermissionDenied("Выдавать роли может только главный разработчик")
-    if new_role not in VALID_ROLES or new_role == "guest":
+        raise PermissionDeniedError(
+            "Выдавать роли может только главный разработчик")
+    if new_role not in ASSIGNABLE_ROLES:
         raise ValidationError("Недопустимая роль")
-    get_user(db, target_id)
-    db.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, target_id))
+    target = get_user(db, target_id)
+    if target["role"] == "owner":
+        raise PermissionDeniedError("Роль главного разработчика не меняется")
+    is_student = 1 if new_role == "student" else target["is_student"]
+    db.execute("UPDATE users SET role = ?, is_student = ? WHERE id = ?",
+               (new_role, is_student, target_id))
     db.commit()
 
 
 def verify_student(db: sqlite3.Connection, actor_role: str,
                    target_id: int) -> None:
-    """Подтвердить статус студента (модератор/владелец)."""
+    """Подтвердить статус студента (пользователь становится студентом)."""
     require_permission(actor_role, "user.verify_student")
-    get_user(db, target_id)
-    db.execute("UPDATE users SET is_student = 1 WHERE id = ?", (target_id,))
+    target = get_user(db, target_id)
+    role = "student" if target["role"] == "user" else target["role"]
+    db.execute("UPDATE users SET is_student = 1, role = ? WHERE id = ?",
+               (role, target_id))
     db.commit()
 
 
 def set_language(db: sqlite3.Connection, user_id: int, language: str) -> None:
-    """Сохранить выбранный язык интерфейса пользователя."""
-    if language not in ("ru", "kk", "en"):
+    """Сохранить язык интерфейса пользователя."""
+    if language not in LANGUAGES:
         raise ValidationError("Поддерживаются языки ru, kk, en")
     get_user(db, user_id)
-    db.execute("UPDATE users SET language = ? WHERE id = ?", (language, user_id))
+    db.execute("UPDATE users SET language = ? WHERE id = ?",
+               (language, user_id))
     db.commit()
 
 
+def list_users(db: sqlite3.Connection, *, query: str = "", page: int = 1,
+               page_size: int = 20) -> dict[str, Any]:
+    """Список пользователей с поиском и пагинацией (для модерации)."""
+    where, args = "", []
+    if query:
+        where = (" WHERE LOWER(username) LIKE ? OR LOWER(display_name) "
+                 "LIKE ? OR LOWER(email) LIKE ?")
+        pattern = f"%{query.strip().lower()}%"
+        args = [pattern, pattern, pattern]
+    result = _paginate(
+        db,
+        "SELECT id, username, display_name, email, role, is_student, "
+        f"created_at FROM users{where} ORDER BY id",
+        f"SELECT COUNT(*) FROM users{where}", args, page, page_size)
+    for item in result["items"]:
+        ban = active_ban(db, item["id"])
+        item["banned"] = ban is not None
+        item["ban_reason"] = ban["reason"] if ban else ""
+        item["ban_until"] = ban["until"] if ban else None
+    return result
+
+
 # ---------------------------------------------------------------------------
-# Книги: добавление, редактирование, удаление, поиск с пагинацией
+# Книги
 # ---------------------------------------------------------------------------
+# Узоры обложек. "auto" — интерфейс подбирает узор сам по номеру книги.
+COVER_PATTERNS = ("auto", "plain", "stripes", "diagonal", "dots", "grid",
+                  "waves", "ornament", "frame", "band", "sun")
+
+
+def _validate_book(title: str, author: str, year: Optional[int],
+                   language: str, cover_color: str, price: int,
+                   cover_pattern: str = "auto") -> None:
+    if cover_pattern not in COVER_PATTERNS:
+        raise ValidationError("Неизвестный узор обложки")
+    if not (title or "").strip():
+        raise ValidationError("Название книги не должно быть пустым")
+    if not (author or "").strip():
+        raise ValidationError("Укажите автора книги")
+    if year is not None and not 0 <= int(year) <= 2100:
+        raise ValidationError("Год должен быть в диапазоне 0–2100")
+    if language not in LANGUAGES:
+        raise ValidationError("Язык книги: ru, kk или en")
+    if not COLOR_RE.match(cover_color or ""):
+        raise ValidationError("Цвет обложки в формате #RRGGBB")
+    if int(price) < 0:
+        raise ValidationError("Цена не может быть отрицательной")
+
+
 def add_book(db: sqlite3.Connection, actor_role: str, title: str, author: str,
              *, year: Optional[int] = None, language: str = "ru",
              genre: str = "", description: str = "", content: str = "",
-             cover_color: str = "#4f46e5", is_paid: bool = False,
-             paid_days: Optional[int] = None,
+             cover_color: str = "#1f5f4a", cover_pattern: str = "auto",
+             is_paid: bool = False, price: int = 0,
+             paid_days: Optional[int] = None, external_url: str = "",
+             tags: Optional[list[str]] = None,
              added_by: Optional[int] = None) -> int:
-    """Добавить книгу (требует право ``book.add``).
+    """Добавить книгу (право ``book.add``).
 
-    Платная книга становится бесплатной после ``paid_days`` дней
-    (пункт 73 ТЗ пользователя: «платное всегда на время, со временем
-    становится бесплатным»).
+    Платная книга становится бесплатной через ``paid_days`` дней —
+    «платное всегда на время».
     """
     require_permission(actor_role, "book.add")
-    title = (title or "").strip()
-    author = (author or "").strip()
-    if not title:
-        raise ValidationError("Название книги не должно быть пустым")
-    if not author:
-        raise ValidationError("Укажите автора книги")
-    if year is not None and not (0 <= int(year) <= 2100):
-        raise ValidationError("Год должен быть в диапазоне 0–2100")
-    if language not in ("ru", "kk", "en"):
-        raise ValidationError("Язык книги: ru, kk или en")
+    _validate_book(title, author, year, language, cover_color, price,
+                   cover_pattern)
+    if is_paid and not paid_days:
+        raise ValidationError("Для платной книги укажите срок платности")
+    if external_url and not external_url.startswith(("https://", "http://")):
+        raise ValidationError("Ссылка должна начинаться с http(s)://")
     paid_until = None
-    if is_paid and paid_days:
-        paid_until = (_now() + timedelta(days=int(paid_days))).strftime(DATETIME_FMT)
+    if is_paid:
+        paid_until = (_now() + timedelta(days=int(paid_days))
+                      ).strftime(DATETIME_FMT)
     cur = db.execute(
-        "INSERT INTO books(title, author, year, language, genre, description, "
-        "content, cover_color, is_paid, paid_until, added_by, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (title, author, year, language, genre, description, content,
-         cover_color, 1 if is_paid else 0, paid_until, added_by, _now_str()),
+        "INSERT INTO books(title, author, year, language, genre, description,"
+        " content, external_url, cover_color, cover_pattern, is_paid, price,"
+        " paid_until, added_by, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (title.strip(), author.strip(), year, language,
+         (genre or "").strip().lower(), description or "", content or "",
+         external_url or "", cover_color, cover_pattern, 1 if is_paid else 0,
+         int(price) if is_paid else 0, paid_until, added_by, _now_str()),
     )
     db.commit()
+    if tags:
+        set_book_tags(db, cur.lastrowid, tags)
     return cur.lastrowid
 
 
 def get_book(db: sqlite3.Connection, book_id: int) -> sqlite3.Row:
-    """Вернуть книгу по идентификатору или выбросить :class:`NotFoundError`."""
-    row = db.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
+    """Вернуть книгу по id или выбросить :class:`NotFoundError`."""
+    row = db.execute("SELECT * FROM books WHERE id = ?",
+                     (book_id,)).fetchone()
     if row is None:
         raise NotFoundError("Книга не найдена")
     return row
 
 
-def edit_book(db: sqlite3.Connection, actor_role: str, book_id: int,
+def require_book_rights(actor: sqlite3.Row | str, book: sqlite3.Row,
+                        any_perm: str, own_perm: str) -> None:
+    """Разрешить действие над любой книгой или только над своей."""
+    role = actor if isinstance(actor, str) else actor["role"]
+    if has_permission(role, any_perm):
+        return
+    if not isinstance(actor, str) and has_permission(role, own_perm) \
+            and book["added_by"] == actor["id"]:
+        return
+    raise PermissionDeniedError(f"Недостаточно прав: {any_perm}")
+
+
+def edit_book(db: sqlite3.Connection, actor: sqlite3.Row | str, book_id: int,
               **fields: Any) -> None:
-    """Изменить поля книги (требует право ``book.edit``)."""
-    require_permission(actor_role, "book.edit")
-    get_book(db, book_id)
+    """Изменить книгу: редактор — любую, автор — только свою.
+
+    ``actor`` — строка с ролью или строка пользователя из БД.
+    """
+    book = get_book(db, book_id)
+    require_book_rights(actor, book, "book.edit", "book.edit_own")
     allowed = {"title", "author", "year", "language", "genre",
-               "description", "content", "cover_color"}
-    updates = {k: v for k, v in fields.items() if k in allowed}
-    if not updates:
+               "description", "content", "cover_color", "cover_pattern",
+               "external_url"}
+    updates = {k: v for k, v in fields.items()
+               if k in allowed and v is not None}
+    tags = fields.get("tags")
+    if not updates and tags is None:
         raise ValidationError("Нет полей для обновления")
-    cols = ", ".join(f"{k} = ?" for k in updates)
-    db.execute(f"UPDATE books SET {cols} WHERE id = ?",
-               (*updates.values(), book_id))
+    merged = {**dict(book), **updates}
+    _validate_book(merged["title"], merged["author"], merged["year"],
+                   merged["language"], merged["cover_color"], book["price"],
+                   merged["cover_pattern"] or "auto")
+    if "genre" in updates:
+        updates["genre"] = updates["genre"].strip().lower()
+    if updates:
+        # Имена столбцов берутся только из белого списка allowed.
+        cols = ", ".join(f"{k} = ?" for k in updates)
+        db.execute(f"UPDATE books SET {cols} WHERE id = ?",
+                   (*updates.values(), book_id))
+        db.commit()
+    if tags is not None:
+        set_book_tags(db, book_id, tags)
+
+
+def set_book_file(db: sqlite3.Connection, book_id: int,
+                  file_path: Optional[str]) -> None:
+    """Привязать к книге PDF-скан (имя файла в хранилище) или отвязать."""
+    get_book(db, book_id)
+    db.execute("UPDATE books SET file_path = ? WHERE id = ?",
+               (file_path, book_id))
     db.commit()
 
 
-def delete_book(db: sqlite3.Connection, actor_role: str, book_id: int) -> None:
-    """Удалить книгу (требует право ``book.delete``)."""
-    require_permission(actor_role, "book.delete")
-    cur = db.execute("DELETE FROM books WHERE id = ?", (book_id,))
+def delete_book(db: sqlite3.Connection, actor: sqlite3.Row | str,
+                book_id: int) -> Optional[str]:
+    """Удалить книгу. Возвращает имя PDF-файла, чтобы удалить и его."""
+    book = get_book(db, book_id)
+    require_book_rights(actor, book, "book.delete", "book.delete_own")
+    db.execute("DELETE FROM books WHERE id = ?", (book_id,))
     db.commit()
-    if cur.rowcount == 0:
-        raise NotFoundError("Книга не найдена")
+    return book["file_path"]
 
 
-def _clamp_page(page: int, page_size: int) -> tuple[int, int]:
-    """Нормализовать номер страницы и размер страницы для пагинации."""
-    page = max(1, int(page))
-    page_size = max(1, min(int(page_size), MAX_PAGE_SIZE))
-    return page, page_size
+# Поля книги для списков: без полного текста, чтобы ответы были лёгкими.
+_LIST_COLUMNS = (
+    "b.id, b.title, b.author, b.year, b.language, b.genre, b.description, "
+    "b.cover_color, b.cover_pattern, b.is_paid, b.price, b.paid_until, "
+    "b.added_by, "
+    "b.external_url, b.created_at, "
+    "(b.file_path IS NOT NULL) AS has_file, (b.content <> '') AS has_text, "
+    "(SELECT ROUND(AVG(r.value), 1) FROM ratings r WHERE r.book_id = b.id)"
+    " AS rating, "
+    "(SELECT COUNT(*) FROM ratings r WHERE r.book_id = b.id) AS rating_count,"
+    " (SELECT COUNT(*) FROM shelf s WHERE s.book_id = b.id"
+    " AND s.status = 'read') AS reads"
+)
+
+_SORT_SQL = {
+    "title": "b.title", "author": "b.author", "year": "b.year",
+    "created_at": "b.created_at", "rating": "rating", "popular": "reads",
+}
 
 
 def search_books(db: sqlite3.Connection, *, query: str = "",
                  author: str = "", year: Optional[int] = None,
-                 genre: str = "", language: str = "",
-                 sort: str = "title", order: str = "asc",
-                 page: int = 1,
+                 year_from: Optional[int] = None,
+                 year_to: Optional[int] = None, genre: str = "",
+                 language: str = "", tag: str = "", access: str = "",
+                 sort: str = "title", order: str = "asc", page: int = 1,
                  page_size: int = DEFAULT_PAGE_SIZE) -> dict[str, Any]:
-    """Найти книги с поиском, фильтрацией, сортировкой и пагинацией.
+    """Найти книги с поиском, фильтрами, сортировкой и пагинацией.
 
-    * ``query`` ищется по названию **и** автору (регистронезависимо);
-    * ``author``, ``year``, ``genre``, ``language`` — дополнительные фильтры;
-    * ``sort`` — одно из ``title``, ``author``, ``year``, ``created_at``;
-    * постраничный вывод (обязательная функция варианта 11).
-
-    :returns: словарь с ключами ``items``, ``total``, ``page``, ``page_size``,
-        ``pages``.
+    * ``query`` ищется по названию, автору и описанию (без учёта регистра);
+    * фильтры: автор, год или диапазон лет, жанр, язык, тег,
+      доступ (``free``/``paid``);
+    * ``sort`` — одно из :data:`BOOK_SORTS`; имя столбца берётся только из
+      белого списка, что исключает SQL-инъекцию через сортировку;
+    * постраничный вывод — обязательная функция варианта 11.
     """
-    page, page_size = _clamp_page(page, page_size)
-
     where: list[str] = []
     args: list[Any] = []
     if query:
-        where.append("(LOWER(title) LIKE ? OR LOWER(author) LIKE ?)")
+        where.append("(LOWER(b.title) LIKE ? OR LOWER(b.author) LIKE ? "
+                     "OR LOWER(b.description) LIKE ?)")
         pattern = f"%{query.strip().lower()}%"
-        args += [pattern, pattern]
+        args += [pattern, pattern, pattern]
     if author:
-        where.append("LOWER(author) LIKE ?")
+        where.append("LOWER(b.author) LIKE ?")
         args.append(f"%{author.strip().lower()}%")
     if year is not None:
-        where.append("year = ?")
+        where.append("b.year = ?")
         args.append(int(year))
+    if year_from is not None:
+        where.append("b.year >= ?")
+        args.append(int(year_from))
+    if year_to is not None:
+        where.append("b.year <= ?")
+        args.append(int(year_to))
     if genre:
-        where.append("LOWER(genre) = ?")
+        where.append("b.genre = ?")
         args.append(genre.strip().lower())
     if language:
-        where.append("language = ?")
+        where.append("b.language = ?")
         args.append(language)
+    if tag:
+        where.append("b.id IN (SELECT bt.book_id FROM book_tags bt JOIN tags t"
+                     " ON t.id = bt.tag_id WHERE t.name = ?)")
+        args.append(tag.strip().lower())
+    if access in ("free", "paid"):
+        # Платная книга с истёкшим сроком считается бесплатной.
+        paid_now = "(b.is_paid = 1 AND (b.paid_until IS NULL OR " \
+                   "b.paid_until > ?))"
+        where.append(paid_now if access == "paid" else f"NOT {paid_now}")
+        args.append(_now_str())
 
     clause = (" WHERE " + " AND ".join(where)) if where else ""
-
-    # Белый список полей сортировки защищает от инъекции через имя столбца.
-    sort_col = sort if sort in ("title", "author", "year", "created_at") else "title"
+    sort_col = _SORT_SQL.get(sort, "b.title")
     sort_dir = "DESC" if str(order).lower() == "desc" else "ASC"
-
-    total = db.execute(
-        f"SELECT COUNT(*) AS n FROM books{clause}", args
-    ).fetchone()["n"]
-
-    offset = (page - 1) * page_size
-    items = db.execute(
-        f"SELECT * FROM books{clause} ORDER BY {sort_col} {sort_dir} "
-        f"LIMIT ? OFFSET ?",
-        (*args, page_size, offset),
-    ).fetchall()
-
-    pages = (total + page_size - 1) // page_size
-    return {"items": items, "total": total, "page": page,
-            "page_size": page_size, "pages": pages}
-
-
-def can_read_book(user: Optional[sqlite3.Row], book: sqlite3.Row) -> bool:
-    """Определить, может ли пользователь читать книгу.
-
-    Бесплатную книгу читают все. Платную — пока не истёк срок ``paid_until`` —
-    читают владелец/редактор, проверенные студенты, а также автор, добавивший
-    книгу. После истечения срока книга становится бесплатной для всех.
-    """
-    if not book["is_paid"]:
-        return True
-    if book["paid_until"] and _parse(book["paid_until"]) <= _now():
-        return True  # срок платности истёк — книга бесплатна
-    if user is None:
-        return False
-    if user["role"] in ("owner", "editor"):
-        return True
-    if user["is_student"]:
-        return True
-    if book["added_by"] is not None and user["id"] == book["added_by"]:
-        return True
-    return False
-
-
-# ---------------------------------------------------------------------------
-# Комментарии и цензура нецензурной лексики
-# ---------------------------------------------------------------------------
-# Небольшой список корней бранных слов (ru/kk/en). Полный список вынесен бы
-# в отдельный файл; здесь — демонстрация механизма маскирования.
-_PROFANITY = ("дур", "идиот", "fool", "stupid", "ақымақ")
-
-
-def censor_profanity(text: str) -> str:
-    """Замаскировать бранные слова звёздочками, сохранив первую букву."""
-    def mask(match: re.Match) -> str:
-        word = match.group(0)
-        return word[0] + "*" * (len(word) - 1)
-
-    result = text
-    for root in _PROFANITY:
-        result = re.sub(rf"\b{root}\w*", mask, result, flags=re.IGNORECASE)
+    result = _paginate(
+        db,
+        f"SELECT {_LIST_COLUMNS} FROM books b{clause} "
+        f"ORDER BY {sort_col} IS NULL, {sort_col} {sort_dir}, b.id",
+        f"SELECT COUNT(*) FROM books b{clause}", args, page, page_size)
+    for item in result["items"]:
+        item["is_paid"] = is_paid_now(item)
     return result
 
 
-def add_comment(db: sqlite3.Connection, user: sqlite3.Row, book_id: int,
-                text: str) -> int:
-    """Добавить комментарий к книге (требует право ``comment.write``).
+def get_book_details(db: sqlite3.Connection, book_id: int) -> dict[str, Any]:
+    """Карточка книги: поля без текста + рейтинг, теги, прочтения."""
+    row = db.execute(f"SELECT {_LIST_COLUMNS} FROM books b WHERE b.id = ?",
+                     (book_id,)).fetchone()
+    if row is None:
+        raise NotFoundError("Книга не найдена")
+    data = dict(row)
+    data["is_paid"] = is_paid_now(data)
+    data["tags"] = book_tags(db, book_id)
+    return data
 
-    Текст проходит цензуру, а приписка (badge) выставляется по роли автора.
+
+def random_books(db: sqlite3.Connection, genre: str = "",
+                 limit: int = 24) -> list[dict[str, Any]]:
+    """Случайные книги для «режима книжного шкафа» (при желании по жанру)."""
+    limit = max(1, min(int(limit), 60))
+    args: list[Any] = []
+    clause = ""
+    if genre:
+        clause = " WHERE b.genre = ?"
+        args.append(genre.strip().lower())
+    rows = db.execute(f"SELECT {_LIST_COLUMNS} FROM books b{clause} "
+                      "ORDER BY RANDOM() LIMIT ?", (*args, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_genres(db: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Жанры с количеством книг."""
+    rows = db.execute("SELECT genre AS name, COUNT(*) AS count FROM books "
+                      "WHERE genre <> '' GROUP BY genre ORDER BY count DESC, "
+                      "genre").fetchall()
+    return [dict(r) for r in rows]
+
+
+def is_paid_now(book: sqlite3.Row | dict) -> bool:
+    """Платная ли книга прямо сейчас (после ``paid_until`` — бесплатна)."""
+    if not book["is_paid"]:
+        return False
+    return not (book["paid_until"] and _parse(book["paid_until"]) <= _now())
+
+
+def can_read_book(user: Optional[sqlite3.Row], book: sqlite3.Row,
+                  purchased: bool = False) -> bool:
+    """Может ли пользователь читать книгу.
+
+    Бесплатную книгу читают все, включая гостей. Платную (пока не истёк
+    срок) — владелец и редактор, подтверждённые студенты, автор книги и
+    тот, кто её купил.
     """
-    require_permission(user["role"], "comment.write")
+    if not is_paid_now(book):
+        return True
+    if user is None:
+        return False
+    if purchased or user["role"] in ("owner", "editor"):
+        return True
+    if user["is_student"] and has_permission(user["role"], "book.read_paid"):
+        return True
+    return book["added_by"] is not None and user["id"] == book["added_by"]
+
+
+def has_purchased(db: sqlite3.Connection, user_id: int, book_id: int) -> bool:
+    """Купил ли пользователь книгу."""
+    return db.execute("SELECT 1 FROM purchases WHERE user_id = ? AND "
+                      "book_id = ?", (user_id, book_id)).fetchone() is not None
+
+
+def user_can_read(db: sqlite3.Connection, user: Optional[sqlite3.Row],
+                  book: sqlite3.Row) -> bool:
+    """Обёртка над :func:`can_read_book`, учитывающая покупки."""
+    bought = user is not None and has_purchased(db, user["id"], book["id"])
+    return can_read_book(user, book, purchased=bought)
+
+
+def buy_book(db: sqlite3.Connection, user: sqlite3.Row, book_id: int) -> int:
+    """Купить платную книгу (учебная имитация: деньги не списываются).
+
+    :returns: цена в тенге, зафиксированная в покупке.
+    """
+    require_permission(user["role"], "book.buy")
+    book = get_book(db, book_id)
+    if not is_paid_now(book):
+        raise ConflictError("Книга бесплатная — покупать не нужно")
+    if user_can_read(db, user, book):
+        raise ConflictError("У вас уже есть доступ к этой книге")
+    db.execute("INSERT INTO purchases(user_id, book_id, price, created_at) "
+               "VALUES (?, ?, ?, ?)",
+               (user["id"], book_id, book["price"], _now_str()))
+    db.commit()
+    return book["price"]
+
+
+# ---------------------------------------------------------------------------
+# Комментарии и цензура
+# ---------------------------------------------------------------------------
+def censor_profanity(text: str) -> str:
+    """Замаскировать бранные слова звёздочками, оставив первую букву.
+
+    Словарь и правила поиска — в модуле :mod:`app.profanity`. Цензура
+    действует для всех ролей, включая главного разработчика.
+    """
+    return profanity.censor(text)
+
+
+def _clean_comment(text: str) -> str:
     text = (text or "").strip()
     if not text:
         raise ValidationError("Комментарий не должен быть пустым")
     if len(text) > MAX_COMMENT_LEN:
-        raise ValidationError(
-            f"Комментарий не длиннее {MAX_COMMENT_LEN} символов"
-        )
-    get_book(db, book_id)
+        raise ValidationError(f"Комментарий не длиннее {MAX_COMMENT_LEN} "
+                              "символов")
+    return censor_profanity(text)
+
+
+def add_comment(db: sqlite3.Connection, user: sqlite3.Row, book_id: int,
+                text: str) -> int:
+    """Добавить комментарий (право ``comment.write``).
+
+    Текст проходит цензуру; приписка ставится по роли. Автор под своей
+    книгой получает приписку «автор этой книги».
+    """
+    require_permission(user["role"], "comment.write")
+    clean = _clean_comment(text)
+    book = get_book(db, book_id)
     badge = ROLE_BADGE.get(user["role"], "")
+    if book["added_by"] == user["id"] and user["role"] == "author":
+        badge = "author_own"
     cur = db.execute(
         "INSERT INTO comments(book_id, user_id, text, badge, created_at) "
         "VALUES (?, ?, ?, ?, ?)",
-        (book_id, user["id"], censor_profanity(text), badge, _now_str()),
-    )
+        (book_id, user["id"], clean, badge, _now_str()))
     db.commit()
     return cur.lastrowid
 
 
-def delete_comment(db: sqlite3.Connection, user: sqlite3.Row,
-                   comment_id: int) -> None:
-    """Удалить комментарий: свой (``comment.delete_own``) или любой
-    (``comment.delete_any``)."""
-    row = db.execute(
-        "SELECT * FROM comments WHERE id = ? AND is_deleted = 0", (comment_id,)
-    ).fetchone()
+def _get_comment(db: sqlite3.Connection, comment_id: int) -> sqlite3.Row:
+    row = db.execute("SELECT * FROM comments WHERE id = ? AND is_deleted = 0",
+                     (comment_id,)).fetchone()
     if row is None:
         raise NotFoundError("Комментарий не найден")
-    is_own = row["user_id"] == user["id"]
-    if is_own:
-        require_permission(user["role"], "comment.delete_own")
-    else:
-        require_permission(user["role"], "comment.delete_any")
-    db.execute("UPDATE comments SET is_deleted = 1 WHERE id = ?", (comment_id,))
+    return row
+
+
+def edit_comment(db: sqlite3.Connection, user: sqlite3.Row, comment_id: int,
+                 text: str) -> None:
+    """Отредактировать свой комментарий (чужие редактировать нельзя)."""
+    row = _get_comment(db, comment_id)
+    if row["user_id"] != user["id"]:
+        raise PermissionDeniedError(
+            "Редактировать можно только свой комментарий")
+    require_permission(user["role"], "comment.edit_own")
+    db.execute("UPDATE comments SET text = ?, edited_at = ? WHERE id = ?",
+               (_clean_comment(text), _now_str(), comment_id))
     db.commit()
 
 
-def list_comments(db: sqlite3.Connection, book_id: int) -> list[sqlite3.Row]:
-    """Вернуть неудалённые комментарии книги в хронологическом порядке."""
-    return db.execute(
-        "SELECT c.*, u.username FROM comments c JOIN users u ON u.id = c.user_id "
-        "WHERE c.book_id = ? AND c.is_deleted = 0 ORDER BY c.created_at",
-        (book_id,),
-    ).fetchall()
+def delete_comment(db: sqlite3.Connection, user: sqlite3.Row,
+                   comment_id: int) -> None:
+    """Удалить комментарий: свой или любой (модератор/редактор)."""
+    row = _get_comment(db, comment_id)
+    perm = ("comment.delete_own" if row["user_id"] == user["id"]
+            else "comment.delete_any")
+    require_permission(user["role"], perm)
+    db.execute("UPDATE comments SET is_deleted = 1 WHERE id = ?",
+               (comment_id,))
+    db.commit()
+
+
+def list_comments(db: sqlite3.Connection, book_id: int, page: int = 1,
+                  page_size: int = 20) -> dict[str, Any]:
+    """Комментарии книги постранично, новые сверху."""
+    return _paginate(
+        db,
+        "SELECT c.id, c.book_id, c.user_id, c.text, c.badge, c.edited_at, "
+        "c.created_at, u.username, u.display_name FROM comments c "
+        "JOIN users u ON u.id = c.user_id WHERE c.book_id = ? AND "
+        "c.is_deleted = 0 ORDER BY c.id DESC",
+        "SELECT COUNT(*) FROM comments WHERE book_id = ? AND is_deleted = 0",
+        [book_id], page, page_size)
 
 
 # ---------------------------------------------------------------------------
-# Книжная полка и прогресс чтения (удобство, как в MangaLib)
+# Оценки
+# ---------------------------------------------------------------------------
+def rate_book(db: sqlite3.Connection, user: sqlite3.Row, book_id: int,
+              value: int) -> None:
+    """Поставить книге оценку 1–5 (повторная оценка заменяет прежнюю)."""
+    require_permission(user["role"], "rating.set")
+    value = int(value)
+    if not 1 <= value <= 5:
+        raise ValidationError("Оценка — от 1 до 5")
+    get_book(db, book_id)
+    db.execute("INSERT INTO ratings(user_id, book_id, value, updated_at) "
+               "VALUES (?, ?, ?, ?) ON CONFLICT(user_id, book_id) DO UPDATE "
+               "SET value = excluded.value, updated_at = excluded.updated_at",
+               (user["id"], book_id, value, _now_str()))
+    db.commit()
+
+
+def user_rating(db: sqlite3.Connection, user_id: int,
+                book_id: int) -> Optional[int]:
+    """Оценка, которую пользователь поставил книге (или ``None``)."""
+    row = db.execute("SELECT value FROM ratings WHERE user_id = ? AND "
+                     "book_id = ?", (user_id, book_id)).fetchone()
+    return row["value"] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Полка, прогресс чтения и закладки
 # ---------------------------------------------------------------------------
 def set_shelf_status(db: sqlite3.Connection, user_id: int, book_id: int,
-                     status: str) -> None:
-    """Добавить книгу на полку со статусом reading/want/dropped/read."""
+                     status: Optional[str]) -> None:
+    """Поставить статус книги на полке; ``None`` — убрать с полки."""
+    get_book(db, book_id)
+    if status is None:
+        db.execute("DELETE FROM shelf WHERE user_id = ? AND book_id = ?",
+                   (user_id, book_id))
+        db.commit()
+        return
     if status not in SHELF_STATUSES:
         raise ValidationError("Недопустимый статус полки")
-    get_book(db, book_id)
     db.execute(
         "INSERT INTO shelf(user_id, book_id, status, updated_at) "
-        "VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(user_id, book_id) DO UPDATE SET status = ?, updated_at = ?",
-        (user_id, book_id, status, _now_str(), status, _now_str()),
-    )
+        "VALUES (?, ?, ?, ?) ON CONFLICT(user_id, book_id) DO UPDATE "
+        "SET status = excluded.status, updated_at = excluded.updated_at",
+        (user_id, book_id, status, _now_str()))
     db.commit()
+
+
+def shelf_status(db: sqlite3.Connection, user_id: int,
+                 book_id: int) -> Optional[str]:
+    """Статус книги на полке пользователя (или ``None``)."""
+    row = db.execute("SELECT status FROM shelf WHERE user_id = ? AND "
+                     "book_id = ?", (user_id, book_id)).fetchone()
+    return row["status"] if row else None
 
 
 def get_shelf(db: sqlite3.Connection, user_id: int,
-              status: Optional[str] = None) -> list[sqlite3.Row]:
-    """Вернуть книги на полке пользователя (при необходимости — по статусу)."""
+              status: Optional[str] = None) -> list[dict[str, Any]]:
+    """Книги на полке пользователя (при необходимости — по статусу)."""
     if status is not None and status not in SHELF_STATUSES:
         raise ValidationError("Недопустимый статус полки")
-    sql = ("SELECT s.status, s.updated_at, b.* FROM shelf s "
-           "JOIN books b ON b.id = s.book_id WHERE s.user_id = ?")
+    sql = (f"SELECT s.status, s.updated_at AS shelved_at, {_LIST_COLUMNS}, "
+           "p.position FROM shelf s JOIN books b ON b.id = s.book_id "
+           "LEFT JOIN reading_progress p ON p.user_id = s.user_id AND "
+           "p.book_id = s.book_id WHERE s.user_id = ?")
     args: list[Any] = [user_id]
     if status:
         sql += " AND s.status = ?"
         args.append(status)
-    return db.execute(sql + " ORDER BY s.updated_at DESC", args).fetchall()
+    rows = db.execute(sql + " ORDER BY s.updated_at DESC", args).fetchall()
+    return [dict(r) for r in rows]
+
+
+def shelf_counts(db: sqlite3.Connection, user_id: int) -> dict[str, int]:
+    """Сколько книг в каждом списке полки."""
+    counts = {s: 0 for s in SHELF_STATUSES}
+    for row in db.execute("SELECT status, COUNT(*) AS n FROM shelf WHERE "
+                          "user_id = ? GROUP BY status", (user_id,)):
+        counts[row["status"]] = row["n"]
+    return counts
 
 
 def save_progress(db: sqlite3.Connection, user_id: int, book_id: int,
                   position: int) -> None:
-    """Сохранить позицию чтения, чтобы продолжить с того же места."""
+    """Сохранить место чтения. Книга сама попадает в список «Читаю»."""
     position = int(position)
     if position < 0:
         raise ValidationError("Позиция не может быть отрицательной")
     get_book(db, book_id)
     db.execute(
-        "INSERT INTO reading_progress(user_id, book_id, position, updated_at) "
-        "VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(user_id, book_id) DO UPDATE SET position = ?, updated_at = ?",
-        (user_id, book_id, position, _now_str(), position, _now_str()),
-    )
+        "INSERT INTO reading_progress(user_id, book_id, position, updated_at)"
+        " VALUES (?, ?, ?, ?) ON CONFLICT(user_id, book_id) DO UPDATE "
+        "SET position = excluded.position, updated_at = excluded.updated_at",
+        (user_id, book_id, position, _now_str()))
+    # Начал читать книгу из списка «Буду читать» (или вне полки) —
+    # она переходит в «Читаю» и появляется в «Продолжить чтение».
+    if shelf_status(db, user_id, book_id) in (None, "want"):
+        db.execute(
+            "INSERT INTO shelf(user_id, book_id, status, updated_at) "
+            "VALUES (?, ?, 'reading', ?) ON CONFLICT(user_id, book_id) "
+            "DO UPDATE SET status = 'reading', "
+            "updated_at = excluded.updated_at",
+            (user_id, book_id, _now_str()))
     db.commit()
 
 
-def get_progress(db: sqlite3.Connection, user_id: int,
-                 book_id: int) -> int:
-    """Вернуть сохранённую позицию чтения (0, если ещё не читал)."""
-    row = db.execute(
-        "SELECT position FROM reading_progress WHERE user_id = ? AND book_id = ?",
-        (user_id, book_id),
-    ).fetchone()
+def get_progress(db: sqlite3.Connection, user_id: int, book_id: int) -> int:
+    """Сохранённое место чтения (0, если ещё не читал)."""
+    row = db.execute("SELECT position FROM reading_progress WHERE user_id = ?"
+                     " AND book_id = ?", (user_id, book_id)).fetchone()
     return row["position"] if row else 0
+
+
+def continue_reading(db: sqlite3.Connection, user_id: int,
+                     limit: int = 6) -> list[dict[str, Any]]:
+    """Книги «продолжить чтение»: недочитанные, последние сверху."""
+    rows = db.execute(
+        f"SELECT p.position, p.updated_at AS read_at, {_LIST_COLUMNS} "
+        "FROM reading_progress p JOIN books b ON b.id = p.book_id "
+        "LEFT JOIN shelf s ON s.user_id = p.user_id AND s.book_id = p.book_id"
+        " WHERE p.user_id = ? AND COALESCE(s.status, 'reading') = 'reading' "
+        "ORDER BY p.updated_at DESC LIMIT ?",
+        (user_id, max(1, min(int(limit), 50)))).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_bookmark(db: sqlite3.Connection, user_id: int, book_id: int,
+                 position: int, note: str = "") -> int:
+    """Добавить закладку с заметкой на месте чтения."""
+    position = int(position)
+    if position < 0:
+        raise ValidationError("Позиция не может быть отрицательной")
+    note = (note or "").strip()
+    if len(note) > MAX_NOTE_LEN:
+        raise ValidationError(f"Заметка не длиннее {MAX_NOTE_LEN} символов")
+    get_book(db, book_id)
+    cur = db.execute("INSERT INTO bookmarks(user_id, book_id, position, note,"
+                     " created_at) VALUES (?, ?, ?, ?, ?)",
+                     (user_id, book_id, position, note, _now_str()))
+    db.commit()
+    return cur.lastrowid
+
+
+def list_bookmarks(db: sqlite3.Connection, user_id: int,
+                   book_id: Optional[int] = None) -> list[dict[str, Any]]:
+    """Закладки пользователя (все или по одной книге)."""
+    sql = ("SELECT m.*, b.title FROM bookmarks m JOIN books b ON "
+           "b.id = m.book_id WHERE m.user_id = ?")
+    args: list[Any] = [user_id]
+    if book_id is not None:
+        sql += " AND m.book_id = ?"
+        args.append(book_id)
+    return [dict(r) for r in
+            db.execute(sql + " ORDER BY m.id DESC", args).fetchall()]
+
+
+def delete_bookmark(db: sqlite3.Connection, user_id: int,
+                    bookmark_id: int) -> None:
+    """Удалить свою закладку."""
+    cur = db.execute("DELETE FROM bookmarks WHERE id = ? AND user_id = ?",
+                     (bookmark_id, user_id))
+    db.commit()
+    if cur.rowcount == 0:
+        raise NotFoundError("Закладка не найдена")
+
+
+# ---------------------------------------------------------------------------
+# Подтверждение статуса студента
+# ---------------------------------------------------------------------------
+def submit_student_request(db: sqlite3.Connection, user: sqlite3.Row,
+                           file_path: str) -> int:
+    """Подать заявку на статус студента с фото студенческого билета."""
+    require_permission(user["role"], "student.apply")
+    if user["is_student"]:
+        raise ConflictError("Статус студента уже подтверждён")
+    pending = db.execute("SELECT 1 FROM student_requests WHERE user_id = ? "
+                         "AND status = 'pending'", (user["id"],)).fetchone()
+    if pending:
+        raise ConflictError("Заявка уже на рассмотрении")
+    cur = db.execute("INSERT INTO student_requests(user_id, file_path, "
+                     "created_at) VALUES (?, ?, ?)",
+                     (user["id"], file_path, _now_str()))
+    db.commit()
+    return cur.lastrowid
+
+
+def student_request_status(db: sqlite3.Connection,
+                           user_id: int) -> Optional[str]:
+    """Статус последней заявки пользователя на статус студента."""
+    row = db.execute("SELECT status FROM student_requests WHERE user_id = ? "
+                     "ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+    return row["status"] if row else None
+
+
+def list_student_requests(db: sqlite3.Connection,
+                          actor_role: str) -> list[dict[str, Any]]:
+    """Заявки, ожидающие проверки (модератор)."""
+    require_permission(actor_role, "user.verify_student")
+    rows = db.execute("SELECT r.id, r.user_id, r.created_at, u.username, "
+                      "u.display_name FROM student_requests r JOIN users u "
+                      "ON u.id = r.user_id WHERE r.status = 'pending' "
+                      "ORDER BY r.id").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_student_request(db: sqlite3.Connection,
+                        request_id: int) -> sqlite3.Row:
+    """Заявка на статус студента по id."""
+    row = db.execute("SELECT * FROM student_requests WHERE id = ?",
+                     (request_id,)).fetchone()
+    if row is None:
+        raise NotFoundError("Заявка не найдена")
+    return row
+
+
+def review_student_request(db: sqlite3.Connection, actor: sqlite3.Row,
+                           request_id: int, approve: bool) -> None:
+    """Одобрить (пользователь становится студентом) или отклонить заявку."""
+    require_permission(actor["role"], "user.verify_student")
+    row = get_student_request(db, request_id)
+    if row["status"] != "pending":
+        raise ConflictError("Заявка уже рассмотрена")
+    db.execute("UPDATE student_requests SET status = ?, reviewed_by = ? "
+               "WHERE id = ?",
+               ("approved" if approve else "rejected", actor["id"],
+                request_id))
+    db.commit()
+    if approve:
+        verify_student(db, actor["role"], row["user_id"])
 
 
 # ---------------------------------------------------------------------------
 # Баны и заявки на разбан
 # ---------------------------------------------------------------------------
-def is_banned(db: sqlite3.Connection, user_id: int) -> bool:
-    """Проверить, действует ли на пользователя активный бан."""
-    row = db.execute(
-        "SELECT until FROM bans WHERE user_id = ? AND is_active = 1 "
-        "ORDER BY id DESC LIMIT 1",
-        (user_id,),
-    ).fetchone()
+def active_ban(db: sqlite3.Connection,
+               user_id: int) -> Optional[sqlite3.Row]:
+    """Действующий бан пользователя или ``None``; истёкший снимается."""
+    row = db.execute("SELECT * FROM bans WHERE user_id = ? AND is_active = 1 "
+                     "ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
     if row is None:
-        return False
-    if row["until"] is None:
-        return True  # бан навсегда
-    if _parse(row["until"]) > _now():
-        return True
-    # Срок бана истёк — снимаем его.
-    db.execute(
-        "UPDATE bans SET is_active = 0 WHERE user_id = ? AND is_active = 1",
-        (user_id,),
-    )
+        return None
+    if row["until"] is None or _parse(row["until"]) > _now():
+        return row
+    db.execute("UPDATE bans SET is_active = 0 WHERE user_id = ? AND "
+               "is_active = 1", (user_id,))
     db.commit()
-    return False
+    return None
+
+
+def is_banned(db: sqlite3.Connection, user_id: int) -> bool:
+    """Действует ли на пользователя бан."""
+    return active_ban(db, user_id) is not None
 
 
 def ban_user(db: sqlite3.Connection, actor: sqlite3.Row, target_id: int,
-             reason: str, minutes: Optional[int] = None) -> int:
-    """Забанить пользователя (требует право ``user.ban``).
+             reason: str, seconds: Optional[int] = None) -> int:
+    """Забанить пользователя (право ``user.ban``) с причиной и сроком.
 
-    ``minutes=None`` — бан навсегда. Причина обязательна (пункт 74 ТЗ).
+    ``seconds=None`` — навсегда. Модератор не может забанить персонал с
+    равными или большими правами — только главный разработчик.
     """
     require_permission(actor["role"], "user.ban")
     reason = (reason or "").strip()
     if not reason:
         raise ValidationError("Укажите причину бана")
+    if len(reason) > 500:
+        raise ValidationError("Причина не длиннее 500 символов")
     target = get_user(db, target_id)
     if target["role"] == "owner":
-        raise PermissionDenied("Нельзя забанить главного разработчика")
+        raise PermissionDeniedError("Нельзя забанить главного разработчика")
+    if target["id"] == actor["id"]:
+        raise ValidationError("Нельзя забанить самого себя")
+    if actor["role"] != "owner" and target["role"] in ("moderator", "editor"):
+        raise PermissionDeniedError("Банить персонал может только владелец")
     until = None
-    if minutes is not None:
-        if int(minutes) <= 0:
+    if seconds is not None:
+        if int(seconds) <= 0:
             raise ValidationError("Срок бана должен быть положительным")
-        until = (_now() + timedelta(minutes=int(minutes))).strftime(DATETIME_FMT)
-    cur = db.execute(
-        "INSERT INTO bans(user_id, reason, banned_by, until, created_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (target_id, reason, actor["id"], until, _now_str()),
-    )
+        until = (_now() + timedelta(seconds=int(seconds))
+                 ).strftime(DATETIME_FMT)
+    db.execute("UPDATE bans SET is_active = 0 WHERE user_id = ?",
+               (target_id,))
+    cur = db.execute("INSERT INTO bans(user_id, reason, banned_by, until, "
+                     "created_at) VALUES (?, ?, ?, ?, ?)",
+                     (target_id, reason, actor["id"], until, _now_str()))
     db.commit()
     return cur.lastrowid
 
 
 def unban_user(db: sqlite3.Connection, actor: sqlite3.Row,
                target_id: int) -> None:
-    """Снять все активные баны с пользователя (требует право ``user.ban``)."""
+    """Снять активные баны (право ``user.ban``)."""
     require_permission(actor["role"], "user.ban")
-    db.execute(
-        "UPDATE bans SET is_active = 0 WHERE user_id = ? AND is_active = 1",
-        (target_id,),
-    )
+    get_user(db, target_id)
+    db.execute("UPDATE bans SET is_active = 0 WHERE user_id = ? AND "
+               "is_active = 1", (target_id,))
     db.commit()
 
 
@@ -666,66 +1173,111 @@ def create_unban_request(db: sqlite3.Connection, user_id: int,
     """Создать заявку на разбан от забаненного пользователя."""
     text = (text or "").strip()
     if not text:
-        raise ValidationError("Опишите причину разбана")
+        raise ValidationError("Опишите, почему вас стоит разбанить")
+    if len(text) > 1000:
+        raise ValidationError("Текст заявки не длиннее 1000 символов")
     if not is_banned(db, user_id):
-        raise Conflict("Пользователь не забанен")
-    cur = db.execute(
-        "INSERT INTO unban_requests(user_id, text, created_at) VALUES (?, ?, ?)",
-        (user_id, text, _now_str()),
-    )
+        raise ConflictError("Пользователь не забанен")
+    if db.execute("SELECT 1 FROM unban_requests WHERE user_id = ? AND "
+                  "status = 'pending'", (user_id,)).fetchone():
+        raise ConflictError("Заявка уже на рассмотрении")
+    cur = db.execute("INSERT INTO unban_requests(user_id, text, created_at) "
+                     "VALUES (?, ?, ?)", (user_id, text, _now_str()))
     db.commit()
     return cur.lastrowid
 
 
+def unban_request_by_credentials(db: sqlite3.Connection, username: str,
+                                 password: str, text: str) -> int:
+    """Заявка на разбан без входа: забаненный не может получить токен,
+    поэтому подтверждает личность логином и паролем."""
+    user = _check_credentials(db, username, password)
+    return create_unban_request(db, user["id"], text)
+
+
+def list_unban_requests(db: sqlite3.Connection,
+                        actor_role: str) -> list[dict[str, Any]]:
+    """Ожидающие заявки на разбан вместе с причиной бана."""
+    require_permission(actor_role, "unban.manage")
+    rows = db.execute(
+        "SELECT r.id, r.user_id, r.text, r.created_at, u.username, "
+        "(SELECT reason FROM bans b WHERE b.user_id = r.user_id ORDER BY "
+        "b.id DESC LIMIT 1) AS ban_reason FROM unban_requests r JOIN users u"
+        " ON u.id = r.user_id WHERE r.status = 'pending' ORDER BY r.id"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def resolve_unban_request(db: sqlite3.Connection, actor: sqlite3.Row,
                           request_id: int, approve: bool) -> None:
-    """Одобрить или отклонить заявку на разбан (требует право ``unban.manage``)."""
+    """Одобрить (бан снимается) или отклонить заявку на разбан."""
     require_permission(actor["role"], "unban.manage")
-    row = db.execute(
-        "SELECT * FROM unban_requests WHERE id = ?", (request_id,)
-    ).fetchone()
+    row = db.execute("SELECT * FROM unban_requests WHERE id = ?",
+                     (request_id,)).fetchone()
     if row is None:
         raise NotFoundError("Заявка не найдена")
-    status = "approved" if approve else "rejected"
-    db.execute("UPDATE unban_requests SET status = ? WHERE id = ?",
-               (status, request_id))
+    if row["status"] != "pending":
+        raise ConflictError("Заявка уже рассмотрена")
+    db.execute("UPDATE unban_requests SET status = ?, reviewed_by = ? "
+               "WHERE id = ?",
+               ("approved" if approve else "rejected", actor["id"],
+                request_id))
     if approve:
-        db.execute(
-            "UPDATE bans SET is_active = 0 WHERE user_id = ? AND is_active = 1",
-            (row["user_id"],),
-        )
+        db.execute("UPDATE bans SET is_active = 0 WHERE user_id = ? AND "
+                   "is_active = 1", (row["user_id"],))
     db.commit()
 
 
 # ---------------------------------------------------------------------------
-# Статистика чтения (пункт 24 ТЗ пользователя)
+# Статистика
 # ---------------------------------------------------------------------------
 def reading_stats(db: sqlite3.Connection) -> dict[str, Any]:
-    """Собрать статистику прочитанного по всем пользователям.
+    """Общая статистика прочитанного по всем пользователям.
 
-    Лидер списка — пользователь с ролью ``owner`` (главный разработчик):
-    ему засчитывается символический «рекорд» прочитанного.
+    Главный разработчик стоит на «нулевом» месте с символическим «∞» —
+    вне конкурса, а за первое место соревнуются остальные читатели.
+    Читатели с одинаковым числом книг делят одно место.
     """
-    total_read = db.execute(
-        "SELECT COUNT(*) AS n FROM shelf WHERE status = 'read'"
-    ).fetchone()["n"]
-    per_user = db.execute(
-        "SELECT u.username, u.role, COUNT(s.book_id) AS read_count "
-        "FROM users u LEFT JOIN shelf s "
-        "ON s.user_id = u.id AND s.status = 'read' "
-        "GROUP BY u.id ORDER BY read_count DESC"
-    ).fetchall()
-    leaderboard = [
-        {"username": r["username"], "role": r["role"],
-         "read_count": r["read_count"]}
-        for r in per_user
-    ]
-    # Символический рекорд главного разработчика (∞).
-    for entry in leaderboard:
-        if entry["role"] == "owner":
-            entry["read_count"] = "∞"
-            entry["badge"] = "главный разработчик"
-    return {"total_read": total_read, "leaderboard": leaderboard}
+    def count(sql: str) -> int:
+        return db.execute(sql).fetchone()[0]
+
+    rows = [dict(r) for r in db.execute(
+        "SELECT u.username, u.display_name, u.role, COUNT(s.book_id) "
+        "AS read_count FROM users u LEFT JOIN shelf s ON s.user_id = u.id"
+        " AND s.status = 'read' GROUP BY u.id "
+        "ORDER BY (u.role = 'owner') DESC, read_count DESC, u.id")]
+    leaderboard = []
+    place, previous = 0, None
+    for index, entry in enumerate(
+            (e for e in rows if e["role"] != "owner"), start=1):
+        if entry["read_count"] != previous:
+            place, previous = index, entry["read_count"]
+        entry["place"] = place
+        leaderboard.append(entry)
+    leaderboard = leaderboard[:10]
+    owners = [e for e in rows if e["role"] == "owner"]
+    for entry in owners:
+        entry.update(place=0, read_count="∞")
+    leaderboard = owners + leaderboard
+
+    top_books = [dict(r) for r in db.execute(
+        "SELECT b.id, b.title, b.author, b.cover_color, COUNT(*) AS reads "
+        "FROM shelf s JOIN books b ON b.id = s.book_id WHERE s.status = 'read'"
+        " GROUP BY b.id ORDER BY reads DESC, b.title LIMIT 5")]
+
+    return {
+        "total_read": count("SELECT COUNT(*) FROM shelf WHERE "
+                            "status = 'read'"),
+        "total_books": count("SELECT COUNT(*) FROM books"),
+        "total_users": count("SELECT COUNT(*) FROM users"),
+        "total_comments": count("SELECT COUNT(*) FROM comments WHERE "
+                                "is_deleted = 0"),
+        "reading_now": count("SELECT COUNT(*) FROM shelf WHERE "
+                             "status = 'reading'"),
+        "leaderboard": leaderboard,
+        "top_books": top_books,
+        "genres": list_genres(db),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -733,10 +1285,13 @@ def reading_stats(db: sqlite3.Connection) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 def add_tag(db: sqlite3.Connection, name: str) -> int:
     """Создать тег (или вернуть id существующего)."""
-    name = (name or "").strip().lower()
+    name = (name or "").strip().lower().lstrip("#")
     if not name:
         raise ValidationError("Имя тега не должно быть пустым")
-    row = db.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
+    if len(name) > 40:
+        raise ValidationError("Тег не длиннее 40 символов")
+    row = db.execute("SELECT id FROM tags WHERE name = ?",
+                     (name,)).fetchone()
     if row:
         return row["id"]
     cur = db.execute("INSERT INTO tags(name) VALUES (?)", (name,))
@@ -748,18 +1303,41 @@ def tag_book(db: sqlite3.Connection, book_id: int, tag_name: str) -> None:
     """Присвоить книге тег."""
     get_book(db, book_id)
     tag_id = add_tag(db, tag_name)
-    db.execute(
-        "INSERT OR IGNORE INTO book_tags(book_id, tag_id) VALUES (?, ?)",
-        (book_id, tag_id),
-    )
+    db.execute("INSERT OR IGNORE INTO book_tags(book_id, tag_id) "
+               "VALUES (?, ?)", (book_id, tag_id))
     db.commit()
 
 
+def set_book_tags(db: sqlite3.Connection, book_id: int,
+                  names: list[str]) -> None:
+    """Заменить теги книги на переданный список."""
+    clean = []
+    for name in names:
+        name = (name or "").strip().lower().lstrip("#")
+        if name and name not in clean:
+            clean.append(name)
+    if len(clean) > MAX_TAGS_PER_BOOK:
+        raise ValidationError(f"Не больше {MAX_TAGS_PER_BOOK} тегов")
+    get_book(db, book_id)
+    db.execute("DELETE FROM book_tags WHERE book_id = ?", (book_id,))
+    db.commit()
+    for name in clean:
+        tag_book(db, book_id, name)
+
+
 def book_tags(db: sqlite3.Connection, book_id: int) -> list[str]:
-    """Вернуть список тегов книги."""
-    rows = db.execute(
-        "SELECT t.name FROM tags t JOIN book_tags bt ON bt.tag_id = t.id "
-        "WHERE bt.book_id = ? ORDER BY t.name",
-        (book_id,),
-    ).fetchall()
+    """Теги книги по алфавиту."""
+    rows = db.execute("SELECT t.name FROM tags t JOIN book_tags bt ON "
+                      "bt.tag_id = t.id WHERE bt.book_id = ? ORDER BY t.name",
+                      (book_id,)).fetchall()
     return [r["name"] for r in rows]
+
+
+def popular_tags(db: sqlite3.Connection,
+                 limit: int = 20) -> list[dict[str, Any]]:
+    """Самые используемые теги."""
+    rows = db.execute("SELECT t.name, COUNT(*) AS count FROM tags t JOIN "
+                      "book_tags bt ON bt.tag_id = t.id GROUP BY t.id "
+                      "ORDER BY count DESC, t.name LIMIT ?",
+                      (limit,)).fetchall()
+    return [dict(r) for r in rows]
