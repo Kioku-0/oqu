@@ -194,7 +194,9 @@ def add_image(doc: Document, alt: str, src: str) -> None:
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if path.is_file():
-        p.add_run().add_picture(str(path), width=Cm(15))
+        # Скриншоты телефона узкие — делаем их уже, чтобы влезли на страницу.
+        narrow = "mobile" in path.name
+        p.add_run().add_picture(str(path), width=Cm(6.5 if narrow else 15))
     else:
         run = p.add_run(f"[Скриншот: {alt}]")
         run.italic = True
