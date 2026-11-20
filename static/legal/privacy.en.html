@@ -1,0 +1,68 @@
+<h1>Privacy Policy</h1>
+<p class="muted">Version 1.0 of 20 November 2026</p>
+
+<div class="toc"><b>In short.</b> We collect only the data the library needs to work, never sell or share it, and store passwords only as hashes. You can delete all your data with a single button in your profile settings.</div>
+
+<h2>1. General provisions</h2>
+<ol>
+<li>This Policy sets out how the personal data of users of the Oqu digital library (the “Service”) are collected, processed and protected in accordance with Law of the Republic of Kazakhstan No. 94-V “On Personal Data and Their Protection” of 21 May 2013.</li>
+<li>The owner and operator of the database containing personal data are the developers of the Service (section 10).</li>
+<li>By signing up and ticking the consent box, the user consents to the collection and processing of their personal data under this Policy. The date and version of the consent are stored.</li>
+</ol>
+
+<h2>2. Data we process</h2>
+<ul>
+<li><b>Account data:</b> username, email address, display name, chosen language, role; the password only as a cryptographic hash (PBKDF2-HMAC-SHA256 with a random salt).</li>
+<li><b>Reading data:</b> shelves (“Reading”, “Finished”, etc.), reading position, bookmarks and notes, ratings, simulated “purchases”.</li>
+<li><b>Comments</b> the user publishes.</li>
+<li><b>Student ID photo</b> — only if the user applies for student status.</li>
+<li><b>Activity log:</b> type of action (e.g. sign-in or adding a book), time and IP address.</li>
+</ul>
+<p>We do not collect payment details, ID document numbers or IIN, and we do not use advertising trackers.</p>
+
+<h2>3. Purposes</h2>
+<ul>
+<li>signing up, signing in and operating the account;</li>
+<li>providing library features: reading, shelves, bookmarks, reading statistics;</li>
+<li>verifying student status for free access to new releases;</li>
+<li>security: protection against password guessing, investigating violations, moderation;</li>
+<li>anonymous aggregate statistics (e.g. “total books read”).</li>
+</ul>
+
+<h2>4. Retention</h2>
+<ul>
+<li>account data, shelves, bookmarks, ratings and comments — until the account is deleted;</li>
+<li>student ID photo — until the moderator decides on the request; the file is deleted after approval or rejection;</li>
+<li>activity log records — no longer than 1 year, then deleted automatically.</li>
+</ul>
+
+<h2>5. How we protect data</h2>
+<ul>
+<li>passwords are never stored in plain text; sign-in uses signed JWT tokens with a limited lifetime;</li>
+<li>access is split by role following the principle of least privilege; only moderators can see student ID photos;</li>
+<li>sign-in is locked after a series of failed attempts, and the number of attempts from one address is limited;</li>
+<li>all database queries are parameterised (protection against SQL injection) and pages are protected by a Content Security Policy;</li>
+<li>when published online, the Service runs only over HTTPS, and the database containing personal data is located in the Republic of Kazakhstan as required by law.</li>
+</ul>
+
+<h2>6. Disclosure to third parties</h2>
+<p>We do not sell or share personal data with third parties, except where expressly required by the laws of the Republic of Kazakhstan (e.g. at the request of authorised state bodies). Other users see only your display name, username, role and the comments you publish.</p>
+
+<h2>7. User rights</h2>
+<p>The user may:</p>
+<ul>
+<li>know which of their data are processed and obtain them;</li>
+<li>change their display name and password in profile settings;</li>
+<li>withdraw consent by deleting the account (“Profile → Settings → Delete account”): data are deleted permanently, except activity log records, which are kept anonymised until the period in section 4 ends;</li>
+<li>contact the developers using the details in section 10 and appeal the operator's actions as provided by the laws of the Republic of Kazakhstan.</li>
+</ul>
+
+<h2>8. Data in your browser</h2>
+<p>The site stores in your browser (localStorage) only what it needs: sign-in tokens, the chosen language and theme, reader settings and, for guests, the reading position. No advertising or third-party cookies are used. These data are removed when you sign out (tokens) or clear the site data in your browser.</p>
+
+<h2>9. Changes</h2>
+<p>A new version of the Policy is published on this page with its date. Users are notified in the Service of significant changes.</p>
+
+<h2>10. Contacts</h2>
+<p>Developers: Mukhan Nadirkhalif and Khadizat, students of Korkyt Ata Kyzylorda University. Email for personal data requests: <b>[to be provided when the site is published]</b>.</p>
+<p class="small muted">In case of discrepancies between language versions, the Russian version prevails.</p>
