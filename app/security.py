@@ -1,6 +1,6 @@
 """Модуль безопасности: хэширование паролей, JWT-токены, политики защиты.
 
-Здесь собрана вся «криптографическая» часть проекта, отделённая от бизнес-логики:
+Здесь собрана «криптографическая» часть проекта, отделённая от логики:
 
 * хэширование паролей алгоритмом **PBKDF2-HMAC-SHA256** (стандартная библиотека
   :mod:`hashlib`, внешние зависимости не требуются; пароль никогда не хранится
@@ -9,9 +9,9 @@
   варианта 11 — «аутентификация JWT»);
 * константы политики защиты от **подбора пароля (брутфорса)**.
 
-SECRET_KEY берётся из переменной окружения и никогда не хранится в коде
-в боевом режиме (значение по умолчанию ``"dev-only-change-me"`` допустимо
-только для локальной разработки).
+SECRET_KEY берётся из переменной окружения ``SECRET_KEY``. Если её нет
+(локальный запуск), ключ один раз генерируется случайно и сохраняется в
+``instance/secret.key``, который не попадает в Git. В коде ключа нет.
 """
 
 from __future__ import annotations
@@ -24,8 +24,34 @@ from datetime import datetime, timedelta, timezone
 
 import jwt  # PyJWT
 
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_KEY_FILE = os.path.join(_BASE_DIR, "instance", "secret.key")
+
+
+def _load_secret_key() -> str:
+    """Взять ключ из окружения или из локального файла (создав его)."""
+    env_key = os.environ.get("SECRET_KEY", "")
+    if env_key:
+        return env_key
+    try:
+        with open(_KEY_FILE, encoding="utf-8") as fh:
+            key = fh.read().strip()
+        if len(key) >= 32:
+            return key
+    except OSError:
+        pass
+    key = secrets.token_urlsafe(48)
+    try:
+        os.makedirs(os.path.dirname(_KEY_FILE), exist_ok=True)
+        with open(_KEY_FILE, "w", encoding="utf-8") as fh:
+            fh.write(key)
+    except OSError:
+        pass  # только для этого запуска (например, папка только для чтения)
+    return key
+
+
 # --- Общие настройки ------------------------------------------------------
-SECRET_KEY: str = os.environ.get("SECRET_KEY", "dev-only-change-me")
+SECRET_KEY: str = _load_secret_key()
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_TTL_MIN = 30          # срок жизни токена доступа, минут
 REFRESH_TOKEN_TTL_DAYS = 7         # срок жизни токена обновления, дней
@@ -41,7 +67,7 @@ _SALT_BYTES = 16
 
 
 def hash_password(password: str) -> str:
-    """Вернуть безопасный хэш пароля в формате ``pbkdf2_sha256$rounds$salt$hash``.
+    """Вернуть хэш пароля в формате ``pbkdf2_sha256$rounds$salt$hash``.
 
     Соль генерируется случайно для каждого пароля, поэтому одинаковые пароли
     дают разные хэши. Сам пароль восстановить из хэша нельзя.
@@ -52,7 +78,8 @@ def hash_password(password: str) -> str:
     digest = hashlib.pbkdf2_hmac(
         _PBKDF2_HASH, password.encode("utf-8"), salt, _PBKDF2_ROUNDS
     )
-    return f"pbkdf2_{_PBKDF2_HASH}${_PBKDF2_ROUNDS}${salt.hex()}${digest.hex()}"
+    return (f"pbkdf2_{_PBKDF2_HASH}${_PBKDF2_ROUNDS}$"
+            f"{salt.hex()}${digest.hex()}")
 
 
 def verify_password(password: str, stored: str) -> bool:
@@ -72,6 +99,11 @@ def verify_password(password: str, stored: str) -> bool:
         _PBKDF2_HASH, (password or "").encode("utf-8"), salt, rounds
     )
     return hmac.compare_digest(digest, expected)
+
+
+# Хэш случайного пароля: проверяется при входе под несуществующим логином,
+# чтобы время ответа не выдавало, есть ли такой пользователь.
+DUMMY_HASH = hash_password(secrets.token_hex(16))
 
 
 def _now() -> datetime:
