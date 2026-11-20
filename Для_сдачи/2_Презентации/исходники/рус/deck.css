@@ -1,0 +1,87 @@
+/* «Оқу» — презентация защиты. Палитра сайта: бумага, чернила, зелёный акцент.
+   Цвет докладчика: зелёная полоса — Мұхан, оранжевая — Хадизат. */
+:root {
+  --paper: #F6F3EC;
+  --paper2: #ECE6D9;
+  --ink: #1C1B18;
+  --soft: #4F4A40;
+  --green: #0F6E5A;
+  --green-soft: #DCEBE4;
+  --orange: #C2611F;
+  --orange-soft: #F6E2D2;
+}
+body { font-family: 'Inter', Arial, sans-serif; color: var(--ink); }
+section {
+  background: var(--paper);
+  color: var(--ink);
+  padding: 120px 128px 160px 176px;
+  position: relative;
+  counter-increment: page;
+}
+section.dark { background: var(--ink); color: var(--paper); }
+section.alt { background: var(--paper2); }
+
+/* Полоса докладчика слева */
+.bar { position: absolute; left: 0; top: 0; width: 32px; height: 1080px; }
+.bar-m { background: var(--green); }
+.bar-h { background: var(--orange); }
+
+h1, h2, h3 { font-family: 'Noto Serif', Georgia, serif; color: var(--ink); }
+section.dark h1, section.dark h2, section.dark h3 { color: var(--paper); }
+h1 { font-size: 120px; font-weight: 700; line-height: 1.05; }
+h2 { font-size: 64px; font-weight: 700; line-height: 1.12; margin-bottom: 40px; }
+h3 { font-size: 36px; font-weight: 700; line-height: 1.2; margin-bottom: 12px; }
+p { font-size: 32px; line-height: 1.4; color: var(--soft); }
+section.dark p { color: #D9D3C5; }
+.eyebrow { font-size: 24px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 20px; }
+.sp-m .eyebrow { color: var(--green); }
+.sp-h .eyebrow { color: var(--orange); }
+.lead { font-size: 36px; line-height: 1.4; color: var(--soft); max-width: 1400px; }
+.small { font-size: 24px; color: var(--soft); }
+
+/* Подвал */
+.foot { position: absolute; left: 176px; bottom: 64px; width: 1616px; display: flex; justify-content: space-between; }
+.foot p { font-size: 24px; color: #8A8273; }
+section.dark .foot p { color: #8A8273; }
+
+/* Сетки и карточки */
+.row { display: flex; gap: 32px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; }
+.grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 24px; }
+.card { background: #FBF9F4; border-radius: 20px; padding: 32px 36px; box-shadow: 0 2px 0 rgba(28,27,24,.06); }
+section.alt .card { background: var(--paper); }
+.card p { font-size: 28px; }
+.card .num { font-family: 'Noto Serif', Georgia, serif; font-size: 96px; font-weight: 700; line-height: 1; color: var(--green); margin-bottom: 8px; }
+.sp-h .card .num { color: var(--orange); }
+.card .num-label { font-size: 28px; color: var(--soft); }
+.chip { display: inline-block; font-size: 24px; font-weight: 600; padding: 8px 18px; border-radius: 999px; background: var(--green-soft); color: var(--green); }
+.sp-h .chip { background: var(--orange-soft); color: #8C4210; }
+
+/* Плотные слайды */
+section.compact h2 { margin-bottom: 28px; }
+section.compact .card { padding: 22px 30px; }
+section.compact .card p { font-size: 26px; }
+section.compact .card h3 { font-size: 32px; margin-bottom: 8px; }
+
+/* Таблицы */
+table { font-size: 26px; color: var(--ink); width: 100%; }
+th { text-align: left; font-weight: 600; }
+
+/* Скриншоты */
+.shot { border-radius: 16px; object-fit: contain; background: #E4DED1; box-shadow: 0 10px 30px rgba(28,27,24,.18); }
+
+/* Схема слоёв */
+.layer { border-radius: 20px; padding: 26px 36px; display: flex; justify-content: space-between; align-items: center; }
+.layer h3 { margin: 0; font-size: 34px; }
+.layer p { font-size: 26px; margin: 0; }
+.l1 { background: var(--green-soft); }
+.l2 { background: var(--green); }
+.l2 h3, .l2 p { color: var(--paper); }
+.l3 { background: var(--ink); }
+.l3 h3, .l3 p { color: var(--paper); }
+.down { font-size: 32px; color: var(--green); text-align: center; margin: 6px 0; }
+
+/* Появление */
+@keyframes rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+.anim { animation: rise 600ms ease-out both; animation-delay: calc(var(--i, 0) * 110ms); }

@@ -1,0 +1,20 @@
+<section id="db" class="sp-m alt compact">
+<div class="bar bar-m"></div>
+<p class="eyebrow">Модель данных</p>
+<h2>14 таблиц вместо трёх</h2>
+<div class="row" style="gap:28px; align-items:stretch">
+<div class="card anim" style="--i:1; flex:1; border-top:8px solid #0F6E5A">
+<h3>users</h3><p>логин, хэш пароля, роль, язык, студент?, согласие (дата и редакция), блокировка за подбор</p></div>
+<div class="anim" style="--i:2; flex:1.25; display:flex; flex-direction:column; gap:16px">
+<div class="card"><h3>Связи «многие ко многим»</h3><p>shelf · reading_progress · bookmarks · ratings · purchases · comments</p></div>
+<div class="card"><h3>Модерация</h3><p>bans · unban_requests · student_requests</p></div>
+<div class="card" style="background:#0F6E5A"><h3 style="color:#F6F3EC">action_log</h3><p style="color:#DCEBE4">журнал: кто, что, когда (UTC), IP</p></div>
+</div>
+<div class="card anim" style="--i:3; flex:1; border-top:8px solid #0F6E5A">
+<h3>books</h3><p>название, автор, год, язык, жанр, текст, PDF, ссылка на МегаПро, цвет и узор обложки, платная до…</p><p style="margin-top:16px">+ tags, book_tags</p><p style="margin-top:16px">Ключи и CHECK защищают данные даже при ошибке в коде</p></div>
+</div>
+<div class="foot"><p>Оқу · как мы строили</p><p>8</p></div>
+<aside>По заданию нужно минимум 3 таблицы, у нас 14. Слева пользователи: логин, хэш пароля, роль, язык, отметка студента, дата и редакция принятого соглашения, счётчик неудачных входов. Справа книги: текст, PDF-скан, ссылка на МегаПро, цвет и узор обложки, дата, до которой книга платная. Между ними таблицы связей «многие ко многим»: полка, прогресс чтения, закладки, оценки, покупки, комментарии. Отдельно модерация: баны, заявки на разбан, заявки студентов. И журнал действий action_log — это наше усложнение.
+
+Целостность защищена на уровне самой базы: внешние ключи включены командой PRAGMA foreign_keys, ограничения CHECK не дадут записать роль «hacker» или оценку 6, даже если в коде ошибка. Время хранится строкой в формате год-месяц-день часы-минуты-секунды в UTC — такие строки сравниваются как даты, поэтому фильтры журнала по датам работают прямо в SQL. И есть простые миграции: если база создана старой версией, недостающие столбцы добавляются сами при запуске.</aside>
+</section>

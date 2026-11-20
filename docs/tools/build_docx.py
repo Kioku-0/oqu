@@ -4,7 +4,7 @@
 
     python docs/tools/build_docx.py
 
-Для каждого файла ``docs/NN_*.md`` создаётся ``docs/docx/NN_*.docx``:
+Для каждого файла ``docs/NN_*.md`` создаётся ``Для_сдачи/1_Документы_Word/NN_*.docx``:
 титульный лист, поля по ГОСТ 7.32 (левое 30 мм, правое 15 мм, верх и низ
 20 мм), шрифт Times New Roman, нумерация страниц. Поддерживаются заголовки,
 абзацы с **жирным**, *курсивом*, `кодом`, списки, таблицы, блоки кода,
@@ -26,7 +26,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 DOCS = Path(__file__).resolve().parents[1]
-OUT = DOCS / "docx"
+OUT = DOCS.parent / "Для_сдачи" / "1_Документы_Word"
 FONT = "Times New Roman"
 MONO = "Consolas"
 ACCENT = RGBColor(0x0F, 0x6E, 0x5A)
