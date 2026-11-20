@@ -180,7 +180,7 @@ def seed() -> None:
         return service.get_user(db, uid)
 
     owner = user("muhan", "muhan@oqu.kz", "owner", "Мұхан Надирхалиф")
-    editor = user("khadizat", "khadizat@oqu.kz", "editor", "Хадизат", "kk")
+    editor = user("khadizat", "khadizat@oqu.kz", "editor", "Жоробекова Хадизат", "kk")
     moder = user("moder01", "moder@oqu.kz", "moderator", "Модератор Айгерім")
     author = user("author01", "author@oqu.kz", "author", "Команда «Оқу»")
     student = user("student01", "student@oqu.kz", "user", "Студент Нұрлан",

@@ -1134,7 +1134,7 @@ route(/^\/about$/, (view) => {
       <h1>${esc(t("about.title"))}</h1>
       <p class="muted">${esc(t("about.lead"))}</p>
       <h2>${esc(t("about.team"))}</h2>
-      <ul><li><b>Мұхан Надирхалиф</b> — ${esc(t("about.role_muhan"))}</li><li><b>Хадизат</b> — ${esc(t("about.role_khadizat"))}</li></ul>
+      <ul><li><b>Мұхан Надирхалиф</b> — ${esc(t("about.role_muhan"))}</li><li><b>Жоробекова Хадизат</b> — ${esc(t("about.role_khadizat"))}</li></ul>
       <h2>${esc(t("about.tech"))}</h2>
       <p>${esc(t("about.tech_text"))}</p>
       <p><a class="btn" href="/docs" target="_blank" rel="noopener">${icon("api")}Swagger UI</a> <a class="btn" href="/redoc" target="_blank" rel="noopener">ReDoc</a></p>

@@ -114,7 +114,7 @@ app = FastAPI(
     ),
     version=__version__,
     openapi_tags=OPENAPI_TAGS,
-    contact={"name": "Мұхан Надирхалиф, Хадизат"},
+    contact={"name": "Мұхан Надирхалиф, Жоробекова Хадизат"},
 )
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
