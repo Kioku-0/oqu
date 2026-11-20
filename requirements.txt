@@ -9,3 +9,6 @@ jinja2>=3.1
 # Тестирование и качество кода (для разработки)
 pytest>=8.0
 ruff>=0.4
+
+# Сборка документов в Word (только docs/tools/build_docx.py)
+python-docx>=1.1
