@@ -216,9 +216,13 @@ async def service_error_handler(request: Request, exc: service.ServiceError):
             code, kind = http_code, name
             break
     body = {"detail": str(exc), "code": kind}
+    headers = None
     if isinstance(exc, service.BannedError):
         body.update(reason=exc.reason, until=exc.until)
-    return JSONResponse(status_code=code, content=body)
+    if isinstance(exc, service.AccountLockedError) and exc.retry_after:
+        body["retry_after"] = exc.retry_after
+        headers = {"Retry-After": str(exc.retry_after)}
+    return JSONResponse(status_code=code, content=body, headers=headers)
 
 
 @app.exception_handler(Exception)
@@ -277,9 +281,11 @@ def _check_login_rate(ip: str) -> None:
     while hits and now - hits[0] > LOGIN_RATE_WINDOW:
         hits.popleft()
     if len(hits) >= LOGIN_RATE_LIMIT:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
-                            "Слишком много попыток входа с этого адреса. "
-                            "Подождите минуту.")
+        # Через столько секунд самая старая попытка «выпадет» из окна.
+        wait = int(LOGIN_RATE_WINDOW - (now - hits[0])) + 1
+        raise service.AccountLockedError(
+            "Слишком много попыток входа с этого адреса. Подождите минуту.",
+            retry_after=wait)
     hits.append(now)
 
 

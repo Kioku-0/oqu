@@ -68,7 +68,15 @@ class AuthError(ServiceError):
 
 
 class AccountLockedError(ServiceError):
-    """Аккаунт временно заблокирован из-за подбора пароля."""
+    """Аккаунт временно заблокирован из-за подбора пароля.
+
+    ``retry_after`` — сколько секунд осталось до снятия блокировки
+    (интерфейс показывает по нему обратный отсчёт).
+    """
+
+    def __init__(self, message: str, retry_after: int = 0) -> None:
+        super().__init__(message)
+        self.retry_after = max(0, int(retry_after))
 
 
 class BannedError(ServiceError):
@@ -318,7 +326,9 @@ def _check_credentials(db: sqlite3.Connection, username: str,
         raise AuthError("Неверный логин или пароль")
 
     if user["locked_until"] and _parse(user["locked_until"]) > _now():
-        raise AccountLockedError("Слишком много попыток. Повторите позже.")
+        left = (_parse(user["locked_until"]) - _now()).total_seconds()
+        raise AccountLockedError("Слишком много попыток. Повторите позже.",
+                                 retry_after=int(left) + 1)
 
     if not security.verify_password(password or "", user["password_hash"]):
         attempts = user["failed_attempts"] + 1
@@ -332,7 +342,9 @@ def _check_credentials(db: sqlite3.Connection, username: str,
             "WHERE id = ?", (attempts, locked_until, user["id"]))
         db.commit()
         if locked_until:
-            raise AccountLockedError("Слишком много попыток. Повторите позже.")
+            raise AccountLockedError(
+                "Слишком много попыток. Повторите позже.",
+                retry_after=security.LOCKOUT_MINUTES * 60)
         raise AuthError("Неверный логин или пароль")
 
     db.execute("UPDATE users SET failed_attempts = 0, locked_until = NULL "

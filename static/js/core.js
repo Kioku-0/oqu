@@ -89,17 +89,42 @@ function applyStaticI18n(root = document) {
 /* ---------- Даты, числа ------------------------------------------------- */
 /** Сервер хранит время в UTC («ГГГГ-ММ-ДД ЧЧ:ММ:СС»); показываем в местном. */
 function parseUtc(s) { return s ? new Date(String(s).replace(" ", "T") + "Z") : null; }
+/* Некоторые браузеры (урезанные сборки Chromium/Electron) «знают» казахский
+ * только на словах: вместо «22 қараша» выдают «2026 M11 22», вместо «кеше» —
+ * «yesterday». Проверяем один раз и тогда форматируем сами. */
+const KK_BROKEN = (() => {
+    try {
+        return new Intl.RelativeTimeFormat("kk-KZ", { numeric: "auto" }).format(-1, "day") === "yesterday"
+            || /M\d/.test(new Intl.DateTimeFormat("kk-KZ", { dateStyle: "medium" }).format(new Date(2026, 10, 22)));
+    } catch { return true; }
+})();
+const KK_MONTHS = ["қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым", "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан"];
 function fmtDate(s, withTime = false) {
     const d = parseUtc(s);
     if (!d || isNaN(d)) return "";
+    if (Oqu.state.lang === "kk" && KK_BROKEN) {
+        const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+        return `${d.getFullYear()} ж. ${d.getDate()} ${KK_MONTHS[d.getMonth()]}${withTime ? ", " + hm : ""}`;
+    }
     const opts = withTime ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "medium" };
     return new Intl.DateTimeFormat(LOCALES[Oqu.state.lang], opts).format(d);
 }
+/* Запасной «N … бұрын» для казахского. */
+const KK_RTF = {
+    format(n, unit) {
+        if (unit === "day" && n === -1) return "кеше";
+        if (unit === "day" && n === 1) return "ертең";
+        if (unit === "second" && Math.abs(n) < 10) return "жаңа ғана";
+        const word = { second: "секунд", minute: "минут", hour: "сағат", day: "күн", month: "ай", year: "жыл" }[unit];
+        return n < 0 ? `${-n} ${word} бұрын` : `${n} ${word} кейін`;
+    },
+};
 function fmtAgo(s) {
     const d = parseUtc(s);
     if (!d) return "";
     const sec = Math.round((d - Date.now()) / 1000);
-    const rtf = new Intl.RelativeTimeFormat(LOCALES[Oqu.state.lang], { numeric: "auto" });
+    const rtf = Oqu.state.lang === "kk" && KK_BROKEN ? KK_RTF
+        : new Intl.RelativeTimeFormat(LOCALES[Oqu.state.lang], { numeric: "auto" });
     const steps = [[60, "second"], [60, "minute"], [24, "hour"], [30, "day"], [12, "month"], [Infinity, "year"]];
     let value = sec;
     for (const [size, unit] of steps) {
@@ -359,7 +384,8 @@ function renderChrome() {
     $("#account-btn")?.addEventListener("click", toggleAccountMenu);
 
     $("#footer").innerHTML = `<div class="footer-in">
-        <div>© 2026 «Оқу» · ${esc(t("footer.uni"))}</div>
+        <div class="footer-brand"><svg aria-hidden="true"><use href="#logo"/></svg>
+          <div><b>Оқу</b>© 2026 · ${esc(t("footer.uni"))}</div></div>
         <nav>
           <a href="#/terms">${esc(t("footer.terms"))}</a>
           <a href="#/privacy">${esc(t("footer.privacy"))}</a>
@@ -488,7 +514,6 @@ function openAuth(mode = "login", next = null) {
         </div>
         <h2>${esc(t(isLogin ? "auth.welcome" : "auth.create"))}</h2>
         <form id="auth-form" novalidate>
-          <div class="form-error" id="auth-err" role="alert"></div>
           <label class="field"><span>${esc(t("auth.username"))}</span>
             <input class="input" name="username" required minlength="3" maxlength="32" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
           ${isLogin ? "" : `
@@ -505,6 +530,7 @@ function openAuth(mode = "login", next = null) {
           <label class="check" style="margin:4px 0 18px"><input type="checkbox" name="accept_terms" required>
             <span>${t("auth.accept", { terms: `<a href="#/terms" target="_blank">${esc(t("auth.accept_terms"))}</a>`, privacy: `<a href="#/privacy" target="_blank">${esc(t("auth.accept_privacy"))}</a>` })}</span></label>`}
           <button class="btn primary block lg" id="auth-submit">${esc(t(isLogin ? "auth.login" : "auth.register_btn"))}</button>
+          <div class="form-error below" id="auth-err" role="alert" aria-live="polite"></div>
         </form>
         ${isLogin && !PUBLIC_MODE ? `<details class="demo-accounts"><summary>${esc(t("auth.demo"))} ${esc(t("auth.demo_hint"))}</summary>
           <div class="demo-grid">${DEMO_ACCOUNTS.map(([n, role, note]) => `<button type="button" data-demo="${n}">
@@ -516,14 +542,18 @@ function openAuth(mode = "login", next = null) {
         $("[name=username]", card).value = b.dataset.demo;
         $("[name=password]", card).focus();
     }));
+    const err = $("#auth-err", card);
+    const btn = $("#auth-submit", card);
+    // Если блокировка ещё идёт (окно закрыли и открыли снова) — продолжаем отсчёт.
+    if (authLockUntil > Date.now()) startLockCountdown(err, btn);
     $("#auth-form", card).addEventListener("submit", async (e) => {
         e.preventDefault();
         const form = e.target;
-        const err = $("#auth-err", card);
         const data = Object.fromEntries(new FormData(form).entries());
+        if (authLockUntil > Date.now()) return;
         err.textContent = "";
+        err.classList.remove("ok");
         if (!validateForm(form)) return;
-        const btn = $("#auth-submit", card);
         btn.disabled = true;
         try {
             if (!isLogin) {
@@ -542,9 +572,37 @@ function openAuth(mode = "login", next = null) {
         } catch (ex) {
             btn.disabled = false;
             if (ex.code === "banned") return showBanned(ex.data, data.username, data.password);
+            if (ex.status === 429 && ex.data.retry_after > 0) {
+                authLockUntil = Date.now() + ex.data.retry_after * 1000;
+                return startLockCountdown(err, btn);
+            }
             if (!showServerFieldErrors(form, ex)) err.textContent = errorText(ex);
         }
     });
+}
+
+/* Обратный отсчёт после блокировки входа: кнопка неактивна, под ней —
+ * «Повторить можно через 0:47». Время приходит от сервера (retry_after). */
+let authLockUntil = 0;
+let authLockTimer = null;
+function startLockCountdown(err, btn) {
+    clearInterval(authLockTimer);
+    const tick = () => {
+        const left = Math.ceil((authLockUntil - Date.now()) / 1000);
+        if (!err.isConnected) return clearInterval(authLockTimer);
+        if (left <= 0) {
+            clearInterval(authLockTimer);
+            btn.disabled = false;
+            err.classList.add("ok");
+            err.textContent = t("auth.retry_ready");
+            return;
+        }
+        const time = Math.floor(left / 60) + ":" + String(left % 60).padStart(2, "0");
+        btn.disabled = true;
+        err.innerHTML = `<b>${esc(t("auth.too_many"))}</b> <span class="countdown">${esc(t("auth.retry_in", { time }))}</span>`;
+    };
+    tick();
+    authLockTimer = setInterval(tick, 1000);
 }
 
 function showBanned(info, username, password) {
