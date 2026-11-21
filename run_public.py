@@ -21,7 +21,6 @@
 
 from __future__ import annotations
 
-import getpass
 import os
 import re
 import shutil
@@ -36,7 +35,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("OQU_PORT", "8000"))
 LOCAL_URL = f"http://127.0.0.1:{PORT}"
 URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
-STAFF = ("muhan", "khadizat", "moder01", "author01", "author02")
 
 
 def find_cloudflared() -> str | None:
@@ -50,33 +48,11 @@ def find_cloudflared() -> str | None:
 def change_staff_password() -> None:
     """Предложить новый пароль для служебных демо-аккаунтов."""
     print("Сайт будет открыт в интернет. Пароль демо-аккаунтов ChangeMe_2026")
-    print("написан в README, поэтому для служебных аккаунтов")
-    print("(" + ", ".join(STAFF) + ") лучше задать свой.")
-    password = getpass.getpass("Новый пароль (Enter - оставить прежний): ")
-    if not password:
-        print("Пароль не изменён.\n")
-        return
-    if len(password) < 8:
-        print("Слишком короткий (меньше 8 символов) - пароль не изменён.\n")
-        return
-    if getpass.getpass("Повторите пароль: ") != password:
-        print("Пароли не совпали - пароль не изменён.\n")
-        return
+    print("написан в README, поэтому служебным аккаунтам лучше задать свой.")
     sys.path.insert(0, BASE_DIR)
-    from app import security, web  # noqa: E402  (нужен путь к проекту)
-    from app.db import connect
+    from app.seed import set_staff_password  # noqa: E402
 
-    db = connect(web.DB_PATH)
-    try:
-        new_hash = security.hash_password(password)
-        marks = ",".join("?" * len(STAFF))
-        cur = db.execute(
-            f"UPDATE users SET password_hash = ? WHERE username IN ({marks})",
-            (new_hash, *STAFF))
-        db.commit()
-        print(f"Пароль изменён у {cur.rowcount} аккаунтов. Запомните его!\n")
-    finally:
-        db.close()
+    set_staff_password(ask_skip=True)
 
 
 def wait_for_server(timeout: float = 30) -> bool:

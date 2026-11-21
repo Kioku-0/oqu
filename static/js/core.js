@@ -499,6 +499,8 @@ function openAuth(mode = "login", next = null) {
           <label class="field"><span>${esc(t("auth.password"))}</span>
             <input class="input" name="password" type="password" required minlength="${isLogin ? 1 : 8}" maxlength="128" autocomplete="${isLogin ? "current-password" : "new-password"}">
             ${isLogin ? "" : `<small class="hint">${esc(t("auth.password_hint"))}</small>`}</label>
+          ${isLogin || !PUBLIC_MODE ? "" : `
+          <p class="hint" style="margin:0 0 12px">${esc(t("auth.demo_notice"))}</p>`}
           ${isLogin ? "" : `
           <label class="check" style="margin:4px 0 18px"><input type="checkbox" name="accept_terms" required>
             <span>${t("auth.accept", { terms: `<a href="#/terms" target="_blank">${esc(t("auth.accept_terms"))}</a>`, privacy: `<a href="#/privacy" target="_blank">${esc(t("auth.accept_privacy"))}</a>` })}</span></label>`}

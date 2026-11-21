@@ -4,6 +4,7 @@
 
     python -m app.seed           # наполнить, если база пустая
     python -m app.seed --reset   # удалить базу и создать заново
+    python -m app.seed --staff-password  # свой пароль служебным аккаунтам
 
 Создаются учётные записи всех ролей, книги, теги, полки, оценки, закладки,
 комментарии, бан с заявкой на разбан — чтобы на защите можно было сразу
@@ -386,9 +387,50 @@ def create_owner() -> None:
         db.close()
 
 
+STAFF_ACCOUNTS = ("muhan", "khadizat", "moder01", "author01", "author02")
+
+
+def set_staff_password(ask_skip: bool = False) -> None:
+    """Задать свой пароль служебным демо-аккаунтам (ввод с клавиатуры).
+
+    Нужно, когда сайт открыт в интернет: демо-пароль опубликован в README,
+    и любой мог бы войти как владелец. Пароль вводится скрыто (getpass)
+    и в истории команд не остаётся.
+    """
+    import getpass
+
+    from app import security
+
+    print("Новый пароль для служебных аккаунтов: " + ", ".join(STAFF_ACCOUNTS))
+    hint = " (Enter - оставить прежний)" if ask_skip else ""
+    password = getpass.getpass(f"Пароль{hint}: ")
+    if not password:
+        print("Пароль не изменён.\n")
+        return
+    if len(password) < 8:
+        print("Слишком короткий (меньше 8 символов) - пароль не изменён.\n")
+        return
+    if getpass.getpass("Повторите пароль: ") != password:
+        print("Пароли не совпали - пароль не изменён.\n")
+        return
+    db = connect(DB_PATH)
+    try:
+        marks = ",".join("?" * len(STAFF_ACCOUNTS))
+        cur = db.execute(
+            "UPDATE users SET password_hash = ? "
+            f"WHERE username IN ({marks})",
+            (security.hash_password(password), *STAFF_ACCOUNTS))
+        db.commit()
+        print(f"Пароль изменён у {cur.rowcount} аккаунтов. Запомните его!\n")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     if "--create-owner" in sys.argv:
         create_owner()
+    elif "--staff-password" in sys.argv:
+        set_staff_password()
     else:
         if "--reset" in sys.argv:
             _reset()

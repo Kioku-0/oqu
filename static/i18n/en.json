@@ -190,6 +190,7 @@
   "auth.accept": "I accept the {terms} and consent to the processing of my personal data under the {privacy}",
   "auth.accept_terms": "Terms of Use",
   "auth.accept_privacy": "Privacy Policy",
+  "auth.demo_notice": "Student version: please do not enter real personal data — a made-up name and a test email are fine.",
   "auth.need_terms": "To sign up, please accept the Terms of Use.",
   "auth.demo": "Demo accounts:",
   "auth.demo_pass": "Password for all:",
