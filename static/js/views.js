@@ -304,13 +304,16 @@ route(/^\/bookcase$/, async (view, _m, params) => {
     let genre = params.get("genre") || "";
     let anim = store.get("case.anim", "random");
     view.innerHTML = `<div class="page-head"><div><h1>${esc(t("case.title"))}</h1><p class="muted" style="margin:0">${esc(t("case.lead"))}</p></div></div>
-      <div class="case-tools">
-        <div class="chips" id="case-genres"></div>
-        <button class="btn" id="case-shuffle">${icon("shuffle")}${esc(t("case.shuffle"))}</button>
-      </div>
-      <div class="case-tools"><div class="group"><span class="small muted">${esc(t("case.anim"))}:</span>
-        <div class="seg" id="case-anims">${["random", ...ANIMS].map((a) =>
-            `<button data-anim="${a}" aria-pressed="${anim === a}">${esc(t("case.anim_" + a))}</button>`).join("")}</div></div></div>
+      <section class="case-panel">
+        <div class="case-panel-head"><span class="case-label">${icon("case", "i-sm")}${esc(t("filter.genre"))}</span></div>
+        <div class="genre-tabs" id="case-genres" role="group" aria-label="${esc(t("filter.genre"))}"></div>
+        <div class="case-panel-foot">
+          <div class="group"><span class="case-label">${esc(t("case.anim"))}</span>
+            <div class="seg" id="case-anims">${["random", ...ANIMS].map((a) =>
+                `<button data-anim="${a}" aria-pressed="${anim === a}">${esc(t("case.anim_" + a))}</button>`).join("")}</div></div>
+          <button class="btn primary" id="case-shuffle">${icon("shuffle")}${esc(t("case.shuffle"))}</button>
+        </div>
+      </section>
       <div class="bookcase" id="bookcase"></div>`;
     $$("[data-anim]").forEach((b) => b.addEventListener("click", () => {
         anim = b.dataset.anim;
@@ -318,10 +321,14 @@ route(/^\/bookcase$/, async (view, _m, params) => {
         $$("[data-anim]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
     }));
 
+    // Жанры — «таблички» с цветным корешком (цвет постоянный для жанра) и числом книг.
+    const total = genres.reduce((s, g) => s + (g.count || 0), 0);
     const renderGenres = () => {
-        $("#case-genres").innerHTML = [["", t("common.all")], ...genres.map((g) => [g.name, genreName(g.name)])].map(([v, l]) =>
-            `<button class="chip" data-g="${esc(v)}" aria-pressed="${genre === v}">${esc(l)}</button>`).join("");
+        $("#case-genres").innerHTML = [["", t("common.all"), total], ...genres.map((g) => [g.name, genreName(g.name), g.count])].map(([v, l, n]) =>
+            `<button class="genre-tab" data-g="${esc(v)}" aria-pressed="${genre === v}"
+                style="--gc:${v ? SPINE_COLORS[hash(v) % SPINE_COLORS.length] : "var(--ink)"}"><b>${esc(l)}</b>${n ? `<span>${n}</span>` : ""}</button>`).join("");
         $$("[data-g]").forEach((b) => b.addEventListener("click", () => {
+            if (busy || b.dataset.g === genre) return;   // пока идёт перемешивание — ждём
             genre = b.dataset.g;
             const p = new URLSearchParams(); if (genre) p.set("genre", genre);
             Oqu.router.setParams(p);
@@ -332,9 +339,27 @@ route(/^\/bookcase$/, async (view, _m, params) => {
     /** Расставить книги по 4 полкам: при «Все» — группами по жанрам (жанр
      *  пишется на табличке доски), при выбранном жанре — поровну. Пустое
      *  место заполняется декором, чтобы шкаф выглядел полным. */
+    let busy = false;
     async function fill() {
-        const caseEl = $("#bookcase");
-        const books = await api(`/api/books/random?limit=60${genre ? "&genre=" + encodeURIComponent(genre) : ""}`);
+        if (busy) return;
+        busy = true;
+        const btn = $("#case-shuffle");
+        btn.disabled = true;
+        try {
+            const caseEl = $("#bookcase");
+            const fx = SHUFFLE_FX[Math.floor(Math.random() * SHUFFLE_FX.length)];
+            // Пока старые книги «уходят», новые уже загружаются.
+            const request = api(`/api/books/random?limit=60${genre ? "&genre=" + encodeURIComponent(genre) : ""}`);
+            await shuffleAnim(caseEl, fx, "out");
+            render(caseEl, await request);
+            shuffleAnim(caseEl, fx, "in");
+        } finally {
+            busy = false;
+            btn.disabled = false;
+        }
+    }
+
+    function render(caseEl, books) {
         caseEl.innerHTML = `<div class="case-body"><div class="shelf"><div class="shelf-row"></div></div></div>`;
         // Место на полке, px (если окно свёрнуто и ширина 0 — берём разумный минимум).
         const width = Math.max(260, $(".shelf-row", caseEl).clientWidth - 12);
@@ -423,6 +448,62 @@ route(/^\/bookcase$/, async (view, _m, params) => {
     $("#case-shuffle").addEventListener("click", fill);
     await fill();
 });
+
+/* Анимации перемешивания: как книги уходят с полок («out») и как встают
+   новые («in»). Каждый раз выбирается случайная. Сделано через Web
+   Animations API (element.animate), поэтому не нужны лишние CSS-классы. */
+const SHUFFLE_FX = [
+    {   // домино: падают вправо одна за другой, новые поднимаются слева
+        out: (el) => [{ transformOrigin: "100% 100%", transform: "rotate(0)", opacity: 1 },
+            { transformOrigin: "100% 100%", transform: "rotate(75deg)", opacity: 0 }],
+        in: (el, end) => [{ transformOrigin: "0 100%", transform: "rotate(-75deg)", opacity: 0 },
+            { transformOrigin: "0 100%", transform: end, opacity: 1 }],
+        step: 14, dur: 380, easeIn: "cubic-bezier(.2,.9,.3,1.15)",
+    },
+    {   // падение: проваливаются вниз вразнобой, новые падают сверху с отскоком
+        out: () => [{ transform: "translateY(0)", opacity: 1 }, { transform: "translateY(60%)", opacity: 0 }],
+        in: (el, end) => [{ transform: "translateY(-115%)", opacity: 0 }, { opacity: 1, offset: .5 }, { transform: end, opacity: 1 }],
+        step: 0, random: 260, dur: 420, easeIn: "cubic-bezier(.3,1.45,.55,1)",
+    },
+    {   // вихрь: разлетаются с поворотом, новые разворачиваются корешком к нам
+        out: () => [{ transform: "none", opacity: 1 },
+            { transform: `translate(${Math.round(Math.random() * 120 - 60)}px, -40px) rotate(${Math.round(Math.random() * 80 - 40)}deg) scale(.6)`, opacity: 0 }],
+        in: (el, end) => [{ transform: "perspective(600px) rotateY(90deg) scale(.7)", opacity: 0 }, { transform: end, opacity: 1 }],
+        step: 6, random: 120, dur: 460, easeIn: "cubic-bezier(.2,.8,.2,1)",
+    },
+    {   // волна: подпрыгивают и исчезают слева направо, новые выныривают снизу
+        out: () => [{ transform: "translateY(0)", opacity: 1 }, { transform: "translateY(-26px)", opacity: .8, offset: .4 }, { transform: "translateY(-10px)", opacity: 0 }],
+        in: (el, end) => [{ transform: "translateY(36px)", opacity: 0 }, { transform: end, opacity: 1 }],
+        step: 22, dur: 360, easeIn: "cubic-bezier(.2,.9,.3,1.2)",
+    },
+];
+
+/** Проиграть анимацию перемешивания для всех предметов на полках. */
+function shuffleAnim(caseEl, fx, phase) {
+    const rows = $$(".shelf-row", caseEl);
+    if (!rows.length || matchMedia("(prefers-reduced-motion: reduce)").matches || !Element.prototype.animate) return Promise.resolve();
+    const runs = [], anims = [];
+    let longest = 0;
+    rows.forEach((row, r) => {
+        const items = $$(":scope > .spine, :scope > .decor, :scope > .stack", row);
+        // Чтобы на длинной полке анимация не затягивалась, шаг уменьшаем.
+        const step = Math.min(fx.step, 520 / Math.max(1, items.length));
+        items.forEach((el, i) => {
+            const delay = r * 70 + i * step + (fx.random ? Math.random() * fx.random : 0);
+            const end = getComputedStyle(el).transform;
+            const frames = phase === "out" ? fx.out(el) : fx.in(el, end === "none" ? "none" : end);
+            const a = el.animate(frames, { duration: fx.dur, delay, easing: phase === "out" ? "ease-in" : fx.easeIn,
+                fill: phase === "out" ? "forwards" : "backwards" });
+            anims.push(a);
+            runs.push(a.finished.catch(() => {}));
+            longest = Math.max(longest, delay + fx.dur);
+        });
+    });
+    // Страховка: если браузер не рисует кадры (вкладка скрыта), анимации
+    // «стоят» — тогда через положенное время завершаем их сами.
+    const guard = new Promise((done) => setTimeout(() => { anims.forEach((a) => { try { a.finish(); } catch { /* уже нет */ } }); done(); }, longest + 300));
+    return Promise.race([Promise.all(runs), guard]);
+}
 
 /* Пять анимаций: как корешок уходит с полки и как книга появляется.
    [класс корешка, начальное положение летящей книги, задержка, доп. класс] */
