@@ -41,9 +41,12 @@ const genreName = (g) => (g ? (Oqu.state.t["genre." + g] || g) : "—");
    ====================================================================== */
 route(/^\/$/, async (view) => {
     setTitle("");
+    // Последнюю фразу заголовка выделяем курсивом («…Возвращайтесь к закладке.»).
+    const title = esc(t("home.title")).replace(/^(.*\.\s)([^.]+\.?)$/, "$1<em>$2</em>");
     view.innerHTML = `<section class="hero">
         <div>
-          <h1>${esc(t("home.title"))}</h1>
+          <div class="kicker">${esc(t("home.kicker"))}</div>
+          <h1>${title}</h1>
           <p class="lead">${esc(t("home.lead"))}</p>
           <div class="btn-row"><a class="btn primary lg" href="#/catalog">${icon("grid")}${esc(t("home.to_catalog"))}</a>
           <a class="btn lg" href="#/bookcase">${icon("case")}${esc(t("home.to_case"))}</a></div>
