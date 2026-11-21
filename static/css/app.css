@@ -76,6 +76,10 @@
     /* Фактура бумаги: еле заметное «зерно» поверх фона (SVG-шум). */
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .11 0 0 0 0 .1 0 0 0 0 .08 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
     --grain-opacity: .07;
+    /* «Стол» по бокам от страницы: чуть темнее бумаги, с еле видным
+       узором из того же орнамента. Сама страница — светлый «лист». */
+    --desk: #e9e2d3;
+    --desk-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='none' stroke='%235c4a2e' stroke-opacity='.13' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M20 28v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M20 20c0-6 9-6 9-.8 0 3-4.5 3-4.5 0M60 68v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M60 60c0-6 9-6 9-.8 0 3-4.5 3-4.5 0'/%3E%3Cpath d='M40 4l3 3-3 3-3-3zM0 44l3 3-3 3M80 44l-3 3 3 3' stroke-opacity='.1'/%3E%3C/g%3E%3C/svg%3E");
     /* Казахский орнамент «қошқар мүйіз» для разделителей (цвет — чернила). */
     --ornament: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='14' viewBox='0 0 36 14'%3E%3Cpath d='M18 13V8M18 8c0-4-6-4-6-.5 0 2 3 2 3 0M18 8c0-4 6-4 6-.5 0 2-3 2-3 0M0 13h36' fill='none' stroke='%231c1b18' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
     --maxw: 1200px;
@@ -101,6 +105,8 @@
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .25);
     --shadow-lg: 0 10px 40px rgba(0, 0, 0, .5);
     --grain-opacity: .05;
+    --desk: #0c0c0b;
+    --desk-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='none' stroke='%23ece8df' stroke-opacity='.06' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M20 28v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M20 20c0-6 9-6 9-.8 0 3-4.5 3-4.5 0M60 68v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M60 60c0-6 9-6 9-.8 0 3-4.5 3-4.5 0'/%3E%3Cpath d='M40 4l3 3-3 3-3-3zM0 44l3 3-3 3M80 44l-3 3 3 3' stroke-opacity='.05'/%3E%3C/g%3E%3C/svg%3E");
     --ornament: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='14' viewBox='0 0 36 14'%3E%3Cpath d='M18 13V8M18 8c0-4-6-4-6-.5 0 2 3 2 3 0M18 8c0-4 6-4 6-.5 0 2-3 2-3 0M0 13h36' fill='none' stroke='%23ece8df' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
     color-scheme: dark;
 }
@@ -173,12 +179,33 @@ p { margin: 0 0 1em; }
     border-radius: 6px; padding: 1px 7px; background: var(--surface-2);
 }
 .topbar-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
-.lang { display: flex; background: var(--surface-2); border-radius: 999px; padding: 3px; }
-.lang button {
-    border: 0; background: none; cursor: pointer; padding: 4px 10px; border-radius: 999px;
-    font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .3px; min-width: 44px;
+/* Выбор языка: кнопка с глобусом и выпадающий список. */
+.lang-menu { position: relative; }
+.lang-btn {
+    display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 10px 0 11px; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink);
+    font-size: 13px; font-weight: 600; letter-spacing: .03em;
 }
-.lang button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.lang-btn:hover { border-color: color-mix(in srgb, var(--ink) 30%, var(--line)); }
+.lang-btn .i { color: var(--muted); }
+.lang-btn .chev { width: 14px; height: 14px; transition: transform .15s; }
+.lang-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.lang-list {
+    position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; min-width: 190px; padding: 6px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow-lg); animation: pop .14s ease-out; display: flex; flex-direction: column; gap: 2px;
+}
+.lang-list[hidden] { display: none; }
+.lang-list button {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 9px 10px;
+    border: 0; background: none; border-radius: var(--radius-sm); cursor: pointer; color: var(--ink); text-align: left;
+}
+.lang-list button:hover, .lang-list button:focus-visible { background: var(--surface-2); outline: none; }
+.lang-list button b { font-weight: 500; }
+.lang-list button span { font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--muted); }
+.lang-list button[aria-current="true"] { background: var(--accent-soft); }
+.lang-list button[aria-current="true"] b { font-weight: 650; color: var(--accent); }
+.lang-list button[aria-current="true"] span { color: var(--accent); }
 .icon-btn {
     width: 40px; height: 40px; border-radius: 999px; border: 1px solid transparent;
     background: none; cursor: pointer; display: inline-grid; place-items: center; color: var(--ink);
@@ -225,6 +252,19 @@ p { margin: 0 0 1em; }
 /* --- Основная область ---------------------------------------------- */
 .view { flex: 1; width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 24px 20px 48px; outline: none; }
 .view.wide { max-width: none; padding: 0; }
+/* На широком экране страница — «лист» на «столе»: свой фон, контуры по
+   бокам (двойная линия, как поля в книге) и мягкая тень. */
+@media (min-width: 1241px) {
+    body { background: var(--desk) var(--desk-pattern); }
+    .topbar { background: color-mix(in srgb, var(--paper) 92%, transparent); }
+    .view:not(.wide) {
+        background: var(--paper); padding: 32px 40px 56px;
+        border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+        box-shadow: 0 0 0 6px color-mix(in srgb, var(--paper) 55%, transparent), 0 0 0 7px var(--line),
+                    0 18px 50px rgba(60, 45, 20, .10);
+    }
+    :root[data-theme="dark"] .view:not(.wide) { box-shadow: 0 0 0 6px color-mix(in srgb, var(--paper) 55%, transparent), 0 0 0 7px var(--line), 0 18px 50px rgba(0, 0, 0, .5); }
+}
 /* Заголовок страницы с «типографской» линейкой снизу: толстая + тонкая,
    как в старых книгах и газетах. */
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap;
@@ -286,9 +326,9 @@ p { margin: 0 0 1em; }
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .form-error { color: var(--danger); background: var(--danger-soft); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 14px; font-size: 14px; }
 .form-error:empty { display: none; }
-/* Ошибка под кнопкой (окно входа): текст по центру, отсчёт крупнее. */
-.form-error.below { margin: 12px 0 0; text-align: center; animation: pop .18s ease-out; }
-.form-error.below b { display: block; font-weight: 600; }
+/* Ошибка над кнопкой (окно входа), под полями: текст по центру. */
+.form-error.above { margin: 4px 0 14px; text-align: center; animation: pop .18s ease-out; }
+.form-error.above b { display: block; font-weight: 600; }
 .form-error .countdown { font-variant-numeric: tabular-nums; }
 .form-error.ok { color: var(--accent); background: var(--accent-soft); }
 
@@ -763,7 +803,7 @@ body.reading .topbar { position: static; }
     .icon-btn { width: 36px; height: 36px; }
     .search-kbd { display: none; }
     .mainnav { display: none; }
-    .lang button { min-width: 0; padding: 4px 7px; font-size: 11px; }
+    .lang-btn { height: 34px; padding: 0 8px; gap: 4px; }
     .account-btn .name { display: none; }
     .account-btn { padding: 3px; }
     .view { padding: 18px 14px 32px; }

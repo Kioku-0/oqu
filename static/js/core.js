@@ -369,7 +369,8 @@ function renderChrome() {
     $("#tabbar").innerHTML = tabs.map((i) =>
         `<a href="${i.href}" class="${i.match.test(hash) ? "active" : ""}">${icon(i.icon)}<span>${esc(t(i.key))}</span></a>`).join("");
 
-    $$(".lang button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === Oqu.state.lang)));
+    $$("#lang-list [data-lang]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.lang === Oqu.state.lang)));
+    $("#lang-cur").textContent = $(`#lang-list [data-lang="${Oqu.state.lang}"] span`).textContent;
     $("#theme-btn").innerHTML = icon(Oqu.state.theme === "dark" ? "sun" : "moon");
 
     const u = Oqu.state.user;
@@ -397,6 +398,7 @@ function renderChrome() {
 function toggleAccountMenu(e) {
     e.stopPropagation();
     const btn = e.currentTarget;
+    toggleLangMenu(false);
     const open = $(".menu-list");
     if (open) { open.remove(); btn.setAttribute("aria-expanded", "false"); return; }
     const u = Oqu.state.user;
@@ -415,7 +417,17 @@ function toggleAccountMenu(e) {
     $("#logout-btn", list).addEventListener("click", logout);
     list.addEventListener("click", (ev) => { if (ev.target.closest("a")) list.remove(); });
 }
-document.addEventListener("click", () => $(".menu-list")?.remove());
+document.addEventListener("click", () => { $(".menu-list")?.remove(); toggleLangMenu(false); });
+
+/* ---------- Выбор языка (выпадающий список) ----------------------------- */
+function toggleLangMenu(open) {
+    const list = $("#lang-list"), btn = $("#lang-btn");
+    if (!list) return;
+    open = open ?? list.hidden;
+    list.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+    if (open) ($('[aria-current="true"]', list) || $("button", list)).focus();
+}
 
 /* ---------- Тема -------------------------------------------------------- */
 function setTheme(theme) {
@@ -529,8 +541,8 @@ function openAuth(mode = "login", next = null) {
           ${isLogin ? "" : `
           <label class="check" style="margin:4px 0 18px"><input type="checkbox" name="accept_terms" required>
             <span>${t("auth.accept", { terms: `<a href="#/terms" target="_blank">${esc(t("auth.accept_terms"))}</a>`, privacy: `<a href="#/privacy" target="_blank">${esc(t("auth.accept_privacy"))}</a>` })}</span></label>`}
+          <div class="form-error above" id="auth-err" role="alert" aria-live="polite"></div>
           <button class="btn primary block lg" id="auth-submit">${esc(t(isLogin ? "auth.login" : "auth.register_btn"))}</button>
-          <div class="form-error below" id="auth-err" role="alert" aria-live="polite"></div>
         </form>
         ${isLogin && !PUBLIC_MODE ? `<details class="demo-accounts"><summary>${esc(t("auth.demo"))} ${esc(t("auth.demo_hint"))}</summary>
           <div class="demo-grid">${DEMO_ACCOUNTS.map(([n, role, note]) => `<button type="button" data-demo="${n}">
@@ -760,7 +772,19 @@ async function boot() {
         await setLang(Oqu.state.user.language, { save: false });
     }
 
-    $$(".lang button").forEach((b) => b.addEventListener("click", () => setLang(b.dataset.lang)));
+    $("#lang-btn").addEventListener("click", (e) => { e.stopPropagation(); $(".menu-list")?.remove(); toggleLangMenu(); });
+    $$("#lang-list [data-lang]").forEach((b) => b.addEventListener("click", () => {
+        toggleLangMenu(false);
+        $("#lang-btn").focus();
+        if (b.dataset.lang !== Oqu.state.lang) setLang(b.dataset.lang);
+    }));
+    // Стрелки вверх/вниз двигают выбор внутри открытого списка.
+    $("#lang-list").addEventListener("keydown", (e) => {
+        if (!["ArrowDown", "ArrowUp"].includes(e.key)) return;
+        e.preventDefault();
+        const items = $$("#lang-list button"), i = items.indexOf(document.activeElement);
+        items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+    });
     $("#theme-btn").addEventListener("click", () => setTheme(Oqu.state.theme === "dark" ? "light" : "dark"));
     $("#search-form").addEventListener("submit", (e) => {
         e.preventDefault();
@@ -771,7 +795,7 @@ async function boot() {
     document.addEventListener("keydown", (e) => {
         const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
         if (e.key === "/" && !typing) { e.preventDefault(); $("#search-input").focus(); }
-        if (e.key === "Escape") { closeModal(); $(".menu-list")?.remove(); }
+        if (e.key === "Escape") { closeModal(); $(".menu-list")?.remove(); toggleLangMenu(false); }
     });
     window.addEventListener("hashchange", () => { Oqu.router.render(); window.scrollTo(0, 0); });
     await Oqu.router.render();

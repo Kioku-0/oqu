@@ -316,7 +316,7 @@ def _check_credentials(db: sqlite3.Connection, username: str,
     """Проверить логин и пароль с защитой от подбора (брутфорса).
 
     После :data:`security.MAX_FAILED_ATTEMPTS` неудач подряд вход
-    блокируется на :data:`security.LOCKOUT_MINUTES` минут.
+    блокируется на :data:`security.LOCKOUT_SECONDS` секунд.
     """
     user = get_user_by_username(db, username)
     if user is None:
@@ -335,7 +335,7 @@ def _check_credentials(db: sqlite3.Connection, username: str,
         locked_until = None
         if attempts >= security.MAX_FAILED_ATTEMPTS:
             locked_until = (_now() + timedelta(
-                minutes=security.LOCKOUT_MINUTES)).strftime(DATETIME_FMT)
+                seconds=security.LOCKOUT_SECONDS)).strftime(DATETIME_FMT)
             attempts = 0
         db.execute(
             "UPDATE users SET failed_attempts = ?, locked_until = ? "
@@ -344,7 +344,7 @@ def _check_credentials(db: sqlite3.Connection, username: str,
         if locked_until:
             raise AccountLockedError(
                 "Слишком много попыток. Повторите позже.",
-                retry_after=security.LOCKOUT_MINUTES * 60)
+                retry_after=security.LOCKOUT_SECONDS)
         raise AuthError("Неверный логин или пароль")
 
     db.execute("UPDATE users SET failed_attempts = 0, locked_until = NULL "

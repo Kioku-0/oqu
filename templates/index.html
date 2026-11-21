@@ -62,6 +62,8 @@
         <symbol id="i-cap" viewBox="0 0 24 24"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3.5 2.5 8.5 2.5 12 0v-5"/></symbol>
         <symbol id="i-api" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></symbol>
         <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+        <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
+        <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
     </defs>
 </svg>
 
@@ -80,10 +82,17 @@
             <kbd class="search-kbd" title="/">/</kbd>
         </form>
         <div class="topbar-tools">
-            <div class="lang" role="group" aria-label="Язык / Тіл / Language">
-                <button type="button" data-lang="kk">ҚАЗ</button>
-                <button type="button" data-lang="ru">РУС</button>
-                <button type="button" data-lang="en">ENG</button>
+            <!-- Выбор языка — выпадающий список (названия языков на самих языках) -->
+            <div class="lang-menu" id="lang-menu">
+                <button type="button" class="lang-btn" id="lang-btn" aria-haspopup="true" aria-expanded="false"
+                        aria-controls="lang-list" title="Язык / Тіл / Language">
+                    <svg class="i i-sm"><use href="#i-globe"/></svg><span id="lang-cur">РУС</span><svg class="i i-sm chev"><use href="#i-down"/></svg>
+                </button>
+                <div class="lang-list" id="lang-list" hidden>
+                    <button type="button" data-lang="en" lang="en"><b>English</b><span>ENG</span></button>
+                    <button type="button" data-lang="ru" lang="ru"><b>Русский</b><span>РУС</span></button>
+                    <button type="button" data-lang="kk" lang="kk"><b>Қазақша</b><span>ҚАЗ</span></button>
+                </div>
             </div>
             <button class="icon-btn" id="theme-btn" type="button" data-t-title="theme.toggle" title="Тема">
                 <svg class="i"><use href="#i-moon"/></svg>

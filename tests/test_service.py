@@ -129,11 +129,11 @@ def test_bruteforce_lockout(db, reader):
     with pytest.raises(service.AccountLockedError) as first:
         service.authenticate(db, "reader1", "WRONG")
     # Сервер сообщает, сколько секунд ждать (для таймера в окне входа).
-    assert first.value.retry_after == security.LOCKOUT_MINUTES * 60
+    assert first.value.retry_after == security.LOCKOUT_SECONDS
     # Теперь даже правильный пароль не проходит, пока действует блокировка.
     with pytest.raises(service.AccountLockedError) as again:
         service.authenticate(db, "reader1", "password123")
-    assert 0 < again.value.retry_after <= security.LOCKOUT_MINUTES * 60 + 1
+    assert 0 < again.value.retry_after <= security.LOCKOUT_SECONDS + 1
 
 
 # --- Права доступа (принцип наименьших привилегий) ------------------------
