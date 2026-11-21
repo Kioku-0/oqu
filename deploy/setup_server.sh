@@ -18,9 +18,11 @@ id oqu >/dev/null 2>&1 || useradd --system --home-dir /opt/oqu --shell /usr/sbin
 mkdir -p /opt/oqu/instance
 rm -rf /opt/oqu/site.new && mkdir -p /opt/oqu/site.new
 tar -xzf /tmp/oqu.tar.gz -C /opt/oqu/site.new
-rm -rf /opt/oqu/site.old; [ -d /opt/oqu/site ] && mv /opt/oqu/site /opt/oqu/site.old
+# Старую версию не храним (места на диске мало; откат — из Git).
+rm -rf /opt/oqu/site.old /opt/oqu/site
 mv /opt/oqu/site.new /opt/oqu/site
 rm -rf /opt/oqu/site/Для_сдачи /opt/oqu/site/docs /opt/oqu/site/tests
+rm -f /tmp/oqu.tar.gz
 
 echo "== 4. Виртуальное окружение и зависимости"
 [ -d /opt/oqu/venv ] || python3 -m venv /opt/oqu/venv
@@ -99,15 +101,10 @@ ufw allow 443/tcp >/dev/null
 ufw allow 8080/tcp >/dev/null
 ufw --force enable >/dev/null
 
-echo "== 10. Ежедневная резервная копия базы (хранить 7 дней)"
-cat > /etc/cron.daily/oqu-backup <<'EOF'
-#!/bin/sh
-mkdir -p /opt/oqu/backups
-sqlite3_db=/opt/oqu/instance/library.sqlite
-[ -f "$sqlite3_db" ] && /opt/oqu/venv/bin/python -c "import sqlite3,sys; s=sqlite3.connect(sys.argv[1]); d=sqlite3.connect(sys.argv[2]); s.backup(d)" "$sqlite3_db" "/opt/oqu/backups/library-$(date +%F).sqlite"
-find /opt/oqu/backups -name 'library-*.sqlite' -mtime +7 -delete
-EOF
-chmod 755 /etc/cron.daily/oqu-backup
+echo "== 10. Резервные копии на сервере не храним (мало места)"
+# Учебный проект: демо-данные пересоздаются командой app.seed.
+rm -f /etc/cron.daily/oqu-backup
+rm -rf /opt/oqu/backups
 
 sleep 2
 echo "== Проверка"
