@@ -413,7 +413,9 @@ route(/^\/bookcase$/, async (view, _m, params) => {
             <div class="case-base"></div>`;
         if (!books.length) $(".shelf-row", caseEl).insertAdjacentHTML("afterbegin", `<span class="shelf-empty">${esc(t("case.empty"))}</span>`);
         const byId = Object.fromEntries(books.map((b) => [b.id, b]));
-        $$(".spine", caseEl).forEach((sp) => sp.addEventListener("click", () =>
+        // Только настоящие книги (с data-id). Корешки «для вида» не кликаются:
+        // раньше клик по ним запускал анимацию без книги, и корешок зависал наклонённым.
+        $$(".spine[data-id]", caseEl).forEach((sp) => sp.addEventListener("click", () =>
             pullBook(sp, byId[sp.dataset.id], anim === "random" ? ANIMS[Math.floor(Math.random() * ANIMS.length)] : anim)));
     }
 
@@ -435,6 +437,7 @@ const ANIM_SPEC = {
 /** Анимация: корешок уходит с полки, книга «вылетает» к центру и раскрывается. */
 function pullBook(spine, b, anim = "pull") {
     const [cls, start, delay, flyCls] = ANIM_SPEC[anim] || ANIM_SPEC.pull;
+    if (!b) return;
     if (Object.values(ANIM_SPEC).some(([c]) => spine.classList.contains(c))) return;
     spine.classList.add(cls);
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;

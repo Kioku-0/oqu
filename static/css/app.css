@@ -448,8 +448,17 @@ table.data tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 50%,
 
 /* --- Каталог: фильтры слева ---------------------------------------- */
 .catalog { display: grid; grid-template-columns: 250px 1fr; gap: 28px; align-items: start; }
-.filters { position: sticky; top: 130px; display: flex; flex-direction: column; gap: 18px; }
-.filters h3 { font-family: var(--font); font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 8px; }
+/* Панель фильтров — отдельная карточка с контуром, группы разделены линиями. */
+.filters { position: sticky; top: 130px; display: flex; flex-direction: column; gap: 0;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 4px 14px 14px; box-shadow: var(--shadow); max-height: calc(100vh - 150px); overflow: auto; scrollbar-width: thin; }
+.filters > div { padding: 14px 0; }
+.filters > div + div { border-top: 1px solid var(--line); }
+.filters > #f-reset { align-self: flex-start; margin-top: 2px; }
+.filters h3 { font-family: var(--font); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+/* Панель сортировки над результатами — тоже с контуром. */
+.catalog .toolbar { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 8px 8px 8px 14px; box-shadow: var(--shadow); }
 .filter-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; }
 .filter-list button {
     display: flex; justify-content: space-between; gap: 8px; border: 0; background: none; padding: 6px 10px;
@@ -555,7 +564,7 @@ a.stat:hover b { color: var(--accent); }
 .spine.tilt { transform: rotate(-4deg); margin: 0 6px; }
 .spine.tilt:hover { transform: rotate(-4deg) translateY(-14px); }
 /* Книги «для вида» без названий: заполняют полку, но не кликаются */
-.spine.blank { cursor: default; filter: brightness(.82) saturate(.8); }
+.spine.blank { cursor: default; filter: brightness(.82) saturate(.8); pointer-events: none; }
 .spine.blank:hover { transform: none; box-shadow: 1px 0 2px rgba(0,0,0,.4); }
 /* Варианты оформления корешков */
 .spine.s-2::before { top: 16px; height: 9px; background: rgba(0,0,0,.28); }
@@ -782,7 +791,7 @@ body.reading .topbar { position: static; }
 /* --- Адаптивность --------------------------------------------------- */
 @media (max-width: 960px) {
     .catalog { grid-template-columns: 1fr; }
-    .filters { position: static; display: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+    .filters { position: static; display: none; padding: 4px 14px 14px; max-height: none; margin-bottom: 4px; }
     .filters.open { display: flex; }
     .filters-toggle { display: inline-flex; }
     .book-page { grid-template-columns: 200px 1fr; gap: 24px; }
