@@ -15,6 +15,13 @@
    элементы интерфейса, поэтому их цвета правило не ограничивает.
    Все цвета — переменные, поэтому тёмная тема = другой набор значений.
 
+   ФОН «ШАЛФЕЙ» (с 22.11.2026): бумага — очень бледный серо-зелёный, то есть
+   оттенок того же зелёного, что и акцент; поэтому палитра читается как одна.
+   Почему так: тёмный текст на светлом фоне читается лучше, чем наоборот
+   (исследования «полярности» экрана: Buchner & Baumgai 2007, Piepenbrock
+   2013); чисто белый на ярком экране слепит, поэтому фон чуть темнее белого;
+   контраст текста к фону ≈ 15:1 (норма WCAG AAA — 7:1).
+
    ШРИФТЫ (лежат в static/fonts, лицензия SIL OFL 1.1, интернет не нужен):
      Literata — книжная антиква (Google сделала её для чтения книг):
                 заголовки, логотип, обложки, корешки, читалка;
@@ -49,13 +56,13 @@
 
 :root {
     /* 60% — бумага */
-    --paper: #f6f3ec;
-    --surface: #ffffff;
-    --surface-2: #efebe2;
-    --line: #e3ddd0;
+    --paper: #f2f5f1;
+    --surface: #fcfdfb;
+    --surface-2: #e8eee7;
+    --line: #d8e0d8;
     /* 30% — чернила */
-    --ink: #1c1b18;
-    --muted: #6d685d;
+    --ink: #1b221f;
+    --muted: #5b6660;
     /* 10% — акцент */
     --accent: #0f6e5a;
     --accent-hover: #0b5847;
@@ -67,8 +74,8 @@
     --ok: var(--accent);
     --wood: #8a5a35;
     --wood-dark: #5c3a21;
-    --shadow: 0 1px 2px rgba(28, 27, 24, .06), 0 4px 14px rgba(28, 27, 24, .06);
-    --shadow-lg: 0 10px 40px rgba(28, 27, 24, .18);
+    --shadow: 0 1px 2px rgba(20, 35, 28, .06), 0 4px 14px rgba(20, 35, 28, .06);
+    --shadow-lg: 0 10px 40px rgba(20, 35, 28, .18);
     --radius: 12px;
     --radius-sm: 8px;
     --font: "Onest", "Segoe UI", system-ui, -apple-system, "Roboto", sans-serif;
@@ -78,8 +85,8 @@
     --grain-opacity: .07;
     /* «Стол» по бокам от страницы: чуть темнее бумаги, с еле видным
        узором из того же орнамента. Сама страница — светлый «лист». */
-    --desk: #e9e2d3;
-    --desk-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='none' stroke='%235c4a2e' stroke-opacity='.13' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M20 28v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M20 20c0-6 9-6 9-.8 0 3-4.5 3-4.5 0M60 68v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M60 60c0-6 9-6 9-.8 0 3-4.5 3-4.5 0'/%3E%3Cpath d='M40 4l3 3-3 3-3-3zM0 44l3 3-3 3M80 44l-3 3 3 3' stroke-opacity='.1'/%3E%3C/g%3E%3C/svg%3E");
+    --desk: #e1e8e1;
+    --desk-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='none' stroke='%232f4a3e' stroke-opacity='.13' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M20 28v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M20 20c0-6 9-6 9-.8 0 3-4.5 3-4.5 0M60 68v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M60 60c0-6 9-6 9-.8 0 3-4.5 3-4.5 0'/%3E%3Cpath d='M40 4l3 3-3 3-3-3zM0 44l3 3-3 3M80 44l-3 3 3 3' stroke-opacity='.1'/%3E%3C/g%3E%3C/svg%3E");
     /* Казахский орнамент «қошқар мүйіз» для разделителей (цвет — чернила). */
     --ornament: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='14' viewBox='0 0 36 14'%3E%3Cpath d='M18 13V8M18 8c0-4-6-4-6-.5 0 2 3 2 3 0M18 8c0-4 6-4 6-.5 0 2-3 2-3 0M0 13h36' fill='none' stroke='%231c1b18' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
     --maxw: 1200px;
@@ -88,12 +95,12 @@
 }
 
 :root[data-theme="dark"] {
-    --paper: #131311;
-    --surface: #1c1b18;
-    --surface-2: #252420;
-    --ink: #ece8df;
-    --muted: #a39d90;
-    --line: #34322c;
+    --paper: #121513;
+    --surface: #1a1e1b;
+    --surface-2: #232824;
+    --ink: #e7ece8;
+    --muted: #9ba59f;
+    --line: #2f3731;
     --accent: #3fb68f;
     --accent-hover: #5cc9a4;
     --accent-ink: #0d1f19;
@@ -105,7 +112,7 @@
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .25);
     --shadow-lg: 0 10px 40px rgba(0, 0, 0, .5);
     --grain-opacity: .05;
-    --desk: #0c0c0b;
+    --desk: #0b0d0c;
     --desk-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='none' stroke='%23ece8df' stroke-opacity='.06' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M20 28v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M20 20c0-6 9-6 9-.8 0 3-4.5 3-4.5 0M60 68v-8m0 0c0-6-9-6-9-.8 0 3 4.5 3 4.5 0M60 60c0-6 9-6 9-.8 0 3-4.5 3-4.5 0'/%3E%3Cpath d='M40 4l3 3-3 3-3-3zM0 44l3 3-3 3M80 44l-3 3 3 3' stroke-opacity='.05'/%3E%3C/g%3E%3C/svg%3E");
     --ornament: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='14' viewBox='0 0 36 14'%3E%3Cpath d='M18 13V8M18 8c0-4-6-4-6-.5 0 2 3 2 3 0M18 8c0-4 6-4 6-.5 0 2-3 2-3 0M0 13h36' fill='none' stroke='%23ece8df' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
     color-scheme: dark;
@@ -264,7 +271,7 @@ p { margin: 0 0 1em; }
         background: var(--paper); padding: 32px 40px 56px;
         border-left: 1px solid var(--line); border-right: 1px solid var(--line);
         box-shadow: 0 0 0 6px color-mix(in srgb, var(--paper) 55%, transparent), 0 0 0 7px var(--line),
-                    0 18px 50px rgba(60, 45, 20, .10);
+                    0 18px 50px rgba(20, 45, 32, .10);
     }
     :root[data-theme="dark"] .view:not(.wide) { box-shadow: 0 0 0 6px color-mix(in srgb, var(--paper) 55%, transparent), 0 0 0 7px var(--line), 0 18px 50px rgba(0, 0, 0, .5); }
 }
@@ -673,7 +680,7 @@ a.stat:hover b { color: var(--accent); }
 :root[data-theme="dark"] .genre-tab { background: var(--surface-2); border-color: rgba(255,255,255,.09);
     box-shadow: 0 1px 0 rgba(0,0,0,.4); color: var(--ink); }
 :root[data-theme="dark"] .genre-tab span { background: rgba(255,255,255,.08); color: var(--muted); }
-:root[data-theme="dark"] .genre-tab:hover { background: #2e2c27; border-color: rgba(255,255,255,.18); box-shadow: 0 4px 12px rgba(0,0,0,.45); }
+:root[data-theme="dark"] .genre-tab:hover { background: #2b322d; border-color: rgba(255,255,255,.18); box-shadow: 0 4px 12px rgba(0,0,0,.45); }
 :root[data-theme="dark"] .genre-tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
     box-shadow: 0 2px 0 #2a8a6a; }
 :root[data-theme="dark"] .genre-tab[aria-pressed="true"] span { background: rgba(0,0,0,.18); color: var(--accent-ink); }

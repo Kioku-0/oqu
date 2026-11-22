@@ -434,7 +434,7 @@ function toggleLangMenu(open) {
 function setTheme(theme) {
     Oqu.state.theme = theme;
     document.documentElement.dataset.theme = theme;
-    $('meta[name="theme-color"]').setAttribute("content", theme === "dark" ? "#131311" : "#0f6e5a");
+    $('meta[name="theme-color"]').setAttribute("content", theme === "dark" ? "#121513" : "#0f6e5a");
     store.set("theme", theme);
     renderChrome();
 }
