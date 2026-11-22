@@ -325,7 +325,7 @@ route(/^\/bookcase$/, async (view, _m, params) => {
     const total = genres.reduce((s, g) => s + (g.count || 0), 0);
     const renderGenres = () => {
         $("#case-genres").innerHTML = [["", t("common.all"), total], ...genres.map((g) => [g.name, genreName(g.name), g.count])].map(([v, l, n]) =>
-            `<button class="genre-tab" data-g="${esc(v)}" aria-pressed="${genre === v}"
+            `<button class="genre-tab${v ? "" : " all"}" data-g="${esc(v)}" aria-pressed="${genre === v}"
                 style="--gc:${v ? SPINE_COLORS[hash(v) % SPINE_COLORS.length] : "var(--ink)"}"><b>${esc(l)}</b>${n ? `<span>${n}</span>` : ""}</button>`).join("");
         $$("[data-g]").forEach((b) => b.addEventListener("click", () => {
             if (busy || b.dataset.g === genre) return;   // пока идёт перемешивание — ждём
