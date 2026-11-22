@@ -133,6 +133,7 @@ class BookOut(BaseModel):
     description: str
     cover_color: str
     cover_pattern: str = "auto"
+    cover_image: Optional[str] = None
     is_paid: bool
     price: int = 0
     paid_until: Optional[str] = None
@@ -163,6 +164,21 @@ class BookContentOut(BaseModel):
     content: str
     has_file: bool
     position: int = 0
+
+
+class ImageOut(BaseModel):
+    """Загруженная иллюстрация: имя файла и строка для вставки в текст."""
+    name: str
+    url: str
+    markup: str
+
+
+class GameSaveIn(BaseModel):
+    """Прогресс мини-игры «Парақ» (проверяется в service.save_game)."""
+    pages: float = Field(..., ge=0, le=1e15)
+    pages_total: float = Field(..., ge=0, le=1e15)
+    clicks: int = Field(..., ge=0, le=10 ** 12)
+    upgrades: dict[str, int] = Field(default_factory=dict, max_length=30)
 
 
 class GenreOut(BaseModel):

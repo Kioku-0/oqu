@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -606,6 +607,49 @@ def set_book_file(db: sqlite3.Connection, book_id: int,
     db.commit()
 
 
+def set_book_cover(db: sqlite3.Connection, book_id: int,
+                   file_name: Optional[str]) -> Optional[str]:
+    """Поставить картинку обложки (или убрать). Возвращает имя старой."""
+    book = get_book(db, book_id)
+    db.execute("UPDATE books SET cover_image = ? WHERE id = ?",
+               (file_name, book_id))
+    db.commit()
+    return book["cover_image"]
+
+
+MAX_IMAGES_PER_BOOK = 60
+
+
+def add_book_image(db: sqlite3.Connection, book_id: int,
+                   file_name: str) -> str:
+    """Зарегистрировать иллюстрацию книги. Возвращает разметку для текста.
+
+    В тексте книги иллюстрация вставляется отдельной строкой
+    ``![подпись](img:<имя>)`` — читалка показывает её картинкой.
+    """
+    get_book(db, book_id)
+    count = db.execute("SELECT COUNT(*) FROM book_images WHERE book_id = ?",
+                       (book_id,)).fetchone()[0]
+    if count >= MAX_IMAGES_PER_BOOK:
+        raise ValidationError(f"Не больше {MAX_IMAGES_PER_BOOK} иллюстраций "
+                              "в одной книге")
+    db.execute("INSERT INTO book_images(book_id, file_name, created_at) "
+               "VALUES (?, ?, ?)", (book_id, file_name, _now_str()))
+    db.commit()
+    return f"![](img:{file_name})"
+
+
+def book_files(db: sqlite3.Connection, book_id: int) -> list[str]:
+    """Все картинки книги (обложка и иллюстрации) — чтобы удалить файлы."""
+    names = [r[0] for r in db.execute(
+        "SELECT file_name FROM book_images WHERE book_id = ?", (book_id,))]
+    cover = db.execute("SELECT cover_image FROM books WHERE id = ?",
+                       (book_id,)).fetchone()
+    if cover and cover[0]:
+        names.append(cover[0])
+    return names
+
+
 def delete_book(db: sqlite3.Connection, actor: sqlite3.Row | str,
                 book_id: int) -> Optional[str]:
     """Удалить книгу. Возвращает имя PDF-файла, чтобы удалить и его."""
@@ -619,8 +663,8 @@ def delete_book(db: sqlite3.Connection, actor: sqlite3.Row | str,
 # Поля книги для списков: без полного текста, чтобы ответы были лёгкими.
 _LIST_COLUMNS = (
     "b.id, b.title, b.author, b.year, b.language, b.genre, b.description, "
-    "b.cover_color, b.cover_pattern, b.is_paid, b.price, b.paid_until, "
-    "b.added_by, "
+    "b.cover_color, b.cover_pattern, b.cover_image, b.is_paid, b.price, "
+    "b.paid_until, b.added_by, "
     "b.external_url, b.created_at, "
     "(b.file_path IS NOT NULL) AS has_file, (b.content <> '') AS has_text, "
     "(SELECT ROUND(AVG(r.value), 1) FROM ratings r WHERE r.book_id = b.id)"
@@ -1290,6 +1334,187 @@ def reading_stats(db: sqlite3.Connection) -> dict[str, Any]:
         "top_books": top_books,
         "genres": list_genres(db),
     }
+
+
+# ---------------------------------------------------------------------------
+# Мини-игра «Парақ» (кликер в духе Cookie Clicker)
+# ---------------------------------------------------------------------------
+# Игрок собирает «страницы»: кликом по книге и с помощью улучшений, которые
+# приносят страницы сами каждую секунду. Цена каждого следующего улучшения
+# того же вида растёт в GAME_COST_GROWTH раз. Таблица общая для сервера и
+# интерфейса (отдаётся через /api/game/config), поэтому сервер может
+# проверить, что присланный прогресс вообще мог быть получен честно.
+GAME_COST_GROWTH = 1.15
+GAME_MAX_CPS = 20            # больше 20 кликов в секунду человек не делает
+GAME_FIRST_SAVE_SECONDS = 120
+GAME_UPGRADES: dict[str, dict[str, Any]] = {
+    # обычные — можно покупать много раз
+    "bookmark": {"cost": 15, "click": 1},       # закладка: +1 к клику
+    "student": {"cost": 60, "rate": 0.5},       # студент-читатель
+    "lamp": {"cost": 300, "rate": 3},           # настольная лампа
+    "shelf": {"cost": 1500, "rate": 12},        # книжная полка (маскот!)
+    "hall": {"cost": 8000, "rate": 50},         # читальный зал
+    "press": {"cost": 40000, "rate": 220},      # типография
+    "library": {"cost": 200000, "rate": 1000},  # библиотека «Оқу»
+    # разовые — пасхалки с одногруппниками, покупаются один раз
+    "edige": {"cost": 600, "once": True, "autoclick": 2},
+    "altynbek": {"cost": 4000, "once": True, "click_mult": 2},
+    "temirlan": {"cost": 25000, "once": True, "rate_mult": 2},
+    "muhan": {"cost": 300000, "once": True, "rate_mult": 3},
+}
+
+
+def game_cost(kind: str, owned: int) -> float:
+    """Цена следующего улучшения ``kind``, если уже куплено ``owned``."""
+    return GAME_UPGRADES[kind]["cost"] * GAME_COST_GROWTH ** owned
+
+
+def game_spent(upgrades: dict[str, int]) -> float:
+    """Сколько страниц потрачено на все купленные улучшения."""
+    return sum(game_cost(kind, i) for kind, n in upgrades.items()
+               for i in range(n))
+
+
+def game_click_power(upgrades: dict[str, int]) -> float:
+    """Сколько страниц даёт один клик."""
+    base = 1 + sum(GAME_UPGRADES[k].get("click", 0) * n
+                   for k, n in upgrades.items())
+    mult = 1
+    for k, n in upgrades.items():
+        if n:
+            mult *= GAME_UPGRADES[k].get("click_mult", 1)
+    return base * mult
+
+
+def game_rate(upgrades: dict[str, int]) -> float:
+    """Сколько страниц в секунду приносят улучшения без кликов."""
+    rate = sum(GAME_UPGRADES[k].get("rate", 0) * n
+               for k, n in upgrades.items())
+    mult = 1
+    for k, n in upgrades.items():
+        if n:
+            mult *= GAME_UPGRADES[k].get("rate_mult", 1)
+    auto = sum(GAME_UPGRADES[k].get("autoclick", 0) * n
+               for k, n in upgrades.items())
+    return rate * mult + auto * game_click_power(upgrades)
+
+
+def _game_upgrades(raw: dict[str, Any]) -> dict[str, int]:
+    if not isinstance(raw, dict):
+        raise ValidationError("Неверный формат улучшений")
+    result: dict[str, int] = {}
+    for kind, count in raw.items():
+        if kind not in GAME_UPGRADES:
+            raise ValidationError(f"Неизвестное улучшение: {kind}")
+        if not isinstance(count, int) or isinstance(count, bool) \
+                or not 0 <= count <= 500:
+            raise ValidationError("Количество улучшений — от 0 до 500")
+        if GAME_UPGRADES[kind].get("once") and count > 1:
+            raise ValidationError("Разовое улучшение покупается один раз")
+        if count:
+            result[kind] = count
+    return result
+
+
+def get_game(db: sqlite3.Connection, user_id: int) -> dict[str, Any]:
+    """Сохранённый прогресс игрока (или пустой, если он ещё не играл)."""
+    row = db.execute("SELECT * FROM game_saves WHERE user_id = ?",
+                     (user_id,)).fetchone()
+    if row is None:
+        return {"pages": 0, "pages_total": 0, "clicks": 0, "upgrades": {},
+                "updated_at": None}
+    data = dict(row)
+    data["upgrades"] = json.loads(data["upgrades"] or "{}")
+    data.pop("user_id", None)
+    return data
+
+
+def save_game(db: sqlite3.Connection, user_id: int, pages: float,
+              pages_total: float, clicks: int,
+              upgrades: dict[str, Any]) -> dict[str, Any]:
+    """Сохранить прогресс игры с защитой от накрутки.
+
+    Проверяется: числа неотрицательные; на купленные улучшения хватило бы
+    собранных страниц; число кликов растёт не быстрее GAME_MAX_CPS в секунду;
+    страниц прибавилось не больше, чем могли дать клики и улучшения за
+    прошедшее с прошлого сохранения время (с запасом в 1,5 раза).
+    """
+    for value in (pages, pages_total, clicks):
+        if not isinstance(value, (int, float)) or isinstance(value, bool) \
+                or value != value or value < 0 or value > 1e15:
+            raise ValidationError("Неверные числа в сохранении")
+    if pages > pages_total + 1e-6:
+        raise ValidationError("Страниц сейчас не может быть больше, "
+                              "чем собрано всего")
+    owned = _game_upgrades(upgrades)
+    if game_spent(owned) > pages_total - pages + 1:
+        raise ValidationError("На такие улучшения не хватило бы страниц")
+
+    prev = get_game(db, user_id)
+    if prev["updated_at"]:
+        elapsed = max(1.0, (_now() - _parse(prev["updated_at"]))
+                      .total_seconds())
+    else:
+        elapsed = float(GAME_FIRST_SAVE_SECONDS)
+    new_clicks = clicks - prev["clicks"]
+    gained = pages_total - prev["pages_total"]
+    if new_clicks < 0 or gained < -1e-6:
+        raise ValidationError("Прогресс не может уменьшаться — для начала "
+                              "заново сбросьте игру")
+    if new_clicks > GAME_MAX_CPS * elapsed + GAME_MAX_CPS:
+        raise ValidationError("Слишком много кликов за это время")
+    allowed = (game_rate(owned) * elapsed
+               + game_click_power(owned) * new_clicks) * 1.5 + 100
+    if gained > allowed:
+        raise ValidationError("Слишком быстрый рост — сохранение отклонено")
+
+    db.execute(
+        "INSERT INTO game_saves(user_id, pages, pages_total, clicks, upgrades,"
+        " updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO "
+        "UPDATE SET pages = excluded.pages, "
+        "pages_total = excluded.pages_total, "
+        "clicks = excluded.clicks, upgrades = excluded.upgrades, "
+        "updated_at = excluded.updated_at",
+        (user_id, float(pages), float(pages_total), int(clicks),
+         json.dumps(owned, sort_keys=True), _now_str()))
+    db.commit()
+    return get_game(db, user_id)
+
+
+def reset_game(db: sqlite3.Connection, user_id: int) -> None:
+    """Начать игру заново (удалить сохранение)."""
+    db.execute("DELETE FROM game_saves WHERE user_id = ?", (user_id,))
+    db.commit()
+
+
+def game_leaderboard(db: sqlite3.Connection,
+                     limit: int = 10) -> list[dict[str, Any]]:
+    """Рекорды «Парақ»: все игроки на равных (без особого места владельца).
+
+    Игроки с одинаковым числом собранных страниц делят одно место.
+    """
+    rows = db.execute(
+        "SELECT u.username, u.display_name, u.role, g.pages_total, g.clicks,"
+        " g.upgrades FROM game_saves g JOIN users u ON u.id = g.user_id "
+        "WHERE g.pages_total > 0 ORDER BY g.pages_total DESC, g.updated_at "
+        "LIMIT ?", (max(1, min(int(limit), 50)),)).fetchall()
+    result, place, previous = [], 0, None
+    for index, row in enumerate(rows, start=1):
+        entry = dict(row)
+        owned = json.loads(entry.pop("upgrades") or "{}")
+        entry["rate"] = round(game_rate(owned), 1)
+        entry["pages_total"] = int(entry["pages_total"])
+        if entry["pages_total"] != previous:
+            place, previous = index, entry["pages_total"]
+        entry["place"] = place
+        result.append(entry)
+    return result
+
+
+def game_config() -> dict[str, Any]:
+    """Таблица улучшений и константы — для интерфейса игры."""
+    return {"upgrades": GAME_UPGRADES, "cost_growth": GAME_COST_GROWTH,
+            "max_cps": GAME_MAX_CPS}
 
 
 # ---------------------------------------------------------------------------

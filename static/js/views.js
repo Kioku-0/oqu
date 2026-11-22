@@ -55,6 +55,9 @@ route(/^\/$/, async (view) => {
       </section>
       <div id="home-continue"></div>
       <section class="section"><div class="stat-row" id="home-stats">${'<div class="stat skeleton" style="height:84px"></div>'.repeat(4)}</div></section>
+      <section class="section"><a class="game-teaser" href="#/game"><span class="gt-ic">${icon("game")}</span>
+        <span class="gt-txt"><b>${esc(t("game.title"))}</b><small>${esc(t("game.teaser"))}</small></span>
+        <span class="btn primary sm">${esc(t("game.play"))} →</span></a></section>
       <section class="section"><div class="section-head"><h2>${esc(t("home.genres"))}</h2></div><div class="chips" id="home-genres"></div></section>
       <section class="section"><div class="section-head"><h2>${esc(t("home.new"))}</h2><a href="#/catalog?sort=-created_at">${esc(t("common.all"))} →</a></div><div class="shelf-frame"><div class="strip shelf-strip" id="home-new"></div></div></section>
       <section class="section"><div class="section-head"><h2>${esc(t("home.popular"))}</h2><a href="#/catalog?sort=-popular">${esc(t("common.all"))} →</a></div><div class="shelf-frame"><div class="strip shelf-strip" id="home-pop"></div></div></section>
@@ -300,6 +303,7 @@ function decorHtml(name, scale) {
     const [w, h, body] = DECOR[name];
     return { w: Math.round(w * scale), html: `<svg class="decor" aria-hidden="true" width="${Math.round(w * scale)}" height="${Math.round(h * scale)}" viewBox="0 0 ${w} ${h}">${body}</svg>` };
 }
+Oqu.decorHtml = decorHtml;   // декор шкафа нужен и мини-игре (game.js)
 function stackHtml(scale) {
     const count = 2 + Math.floor(Math.random() * 3);
     const base = Math.round((62 + Math.random() * 26) * scale);
@@ -798,10 +802,11 @@ route(/^\/read\/(\d+)$/, async (view, [id], params) => {
             toast(t("reader.saved"), "ok");
         });
     } else {
-        const paras = (b.content || "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+        const html = richText(b.content);
         body.innerHTML = `<article class="reader-text" id="r-text"><h1>${esc(b.title)}</h1><div class="by">${esc(b.author)}</div>
-            ${paras.length ? paras.map((p) => `<p>${esc(p)}</p>`).join("") : `<p class="muted">${esc(t("reader.no_text"))}</p>`}
+            ${html || `<p class="muted">${esc(t("reader.no_text"))}</p>`}
             <p class="muted" style="text-align:center;text-indent:0;margin-top:3em">❦</p></article>`;
+        renderMath($("#r-text"));
         const maxScroll = () => Math.max(1, document.documentElement.scrollHeight - innerHeight);
         currentPos = () => Math.round(Math.min(1, scrollY / maxScroll()) * 1000);
         goTo = (pos) => window.scrollTo({ top: (pos / 1000) * maxScroll(), behavior: "smooth" });
@@ -1040,7 +1045,7 @@ function settingsTab(body, u) {
    ====================================================================== */
 route(/^\/stats$/, async (view) => {
     setTitle(t("nav.stats"));
-    const s = await api("/api/stats");
+    const [s, gameTop] = await Promise.all([api("/api/stats"), api("/api/game/leaderboard").catch(() => [])]);
     const maxGenre = Math.max(1, ...s.genres.map((g) => g.count));
     view.innerHTML = `<div class="page-head"><div><h1>${esc(t("stats.title"))}</h1><p class="muted" style="margin:0">${esc(t("stats.lead"))}</p></div></div>
       <div class="stat-row">${[[s.total_read, "home.stat_read"], [s.reading_now, "home.stat_reading"], [s.total_books, "home.stat_books"],
@@ -1058,7 +1063,10 @@ route(/^\/stats$/, async (view) => {
             : `<p class="muted">${esc(t("stats.no_reads"))}</p>`}</div>
           <div class="card"><h2>${esc(t("stats.genres"))}</h2>${s.genres.map((g) => `<div class="bar-row"><span>${esc(genreName(g.name))}</span>
             <div class="bar"><i style="width:${(g.count / maxGenre) * 100}%"></i></div><b>${g.count}</b></div>`).join("")}</div>
-        </div></div>`;
+        </div></div>
+      <div class="card section"><div class="section-head"><h2>${icon("game")} ${esc(t("game.top_stats"))}</h2><a href="#/game">${esc(t("game.play"))} →</a></div>
+        ${gameTop.length ? Oqu.gameTopHtml(gameTop) : `<p class="muted">${esc(t("game.top_empty"))}</p>`}
+        <p class="small muted" style="margin:10px 0 0">${esc(t("game.top_note"))}</p></div>`;
 });
 
 /* ======================================================================
@@ -1101,6 +1109,13 @@ async function bookEditor(view, book) {
           <div class="card section">
             <h2>${esc(t("editor.content"))}</h2>
             <p class="muted small">${esc(t("editor.content_hint"))}</p>
+            <div class="ed-tools" role="toolbar" aria-label="${esc(t("editor.text"))}">
+              <button type="button" class="btn sm" id="ins-img" ${isNew ? "disabled" : ""}>${icon("image")}${esc(t("editor.ins_image"))}</button>
+              <input type="file" id="img-file" accept="image/png,image/jpeg,image/webp" hidden>
+              <button type="button" class="btn sm" id="ins-formula"><b class="ed-sym">∑</b>${esc(t("editor.ins_formula"))}</button>
+              <button type="button" class="btn sm" id="ins-head"><b class="ed-sym">H</b>${esc(t("editor.ins_heading"))}</button>
+              <small class="hint">${esc(t(isNew ? "editor.images_after_save" : "editor.markup_hint"))}</small>
+            </div>
             <label class="field"><span>${esc(t("editor.text"))}</span><textarea class="textarea" name="content" style="min-height:220px;font-family:var(--serif)" maxlength="5000000">${esc(content)}</textarea></label>
             <div class="row">
               <label class="drop">${icon("text")}<div>${esc(t("editor.load_txt"))}</div><input type="file" id="txt-file" accept=".txt,text/plain"></label>
@@ -1122,13 +1137,18 @@ async function bookEditor(view, book) {
             `<button type="button" data-color="${c}" style="background:${c}" aria-pressed="${c === b.cover_color}" aria-label="${c}"></button>`).join("")}</div>
             <input type="color" name="cover_color" value="${esc(b.cover_color)}" style="width:100%;height:36px;border:0;background:none;cursor:pointer"></div>
           <label class="field"><span>${esc(t("editor.pattern"))}</span><select class="select" name="cover_pattern">${COVER_PATTERNS.map((p) =>
-            `<option value="${p}" ${(b.cover_pattern || "auto") === p ? "selected" : ""}>${esc(t("pattern." + p))}</option>`).join("")}</select></label></aside>
+            `<option value="${p}" ${(b.cover_pattern || "auto") === p ? "selected" : ""}>${esc(t("pattern." + p))}</option>`).join("")}</select></label>
+          <div class="field"><span>${esc(t("editor.cover_image"))}</span>
+            <label class="drop drop-sm">${icon("image")}<div id="cover-img-name">${esc(t(b.cover_image ? "editor.cover_has" : "editor.cover_load"))}</div>
+              <input type="file" id="cover-file" accept="image/png,image/jpeg,image/webp"></label>
+            ${b.cover_image ? `<button type="button" class="btn sm danger" id="cover-del">${icon("trash")}${esc(t("editor.cover_delete"))}</button>` : ""}
+            <small class="hint">${esc(t("editor.cover_hint"))}</small></div></aside>
       </form>`;
 
     const form = $("#book-form");
     const preview = () => {
         $("#cover-preview").innerHTML = cover({ id: book?.id, title: form.title.value || t("book.title"), author: form.author.value || t("book.author"),
-            cover_color: form.cover_color.value, cover_pattern: form.cover_pattern.value,
+            cover_color: form.cover_color.value, cover_pattern: form.cover_pattern.value, cover_image: b.cover_image,
             is_paid: form.is_paid?.checked, has_file: !!$("#pdf-file").files[0] || (book && book.has_file) });
     };
     ["title", "author"].forEach((n) => form[n].addEventListener("input", preview));
@@ -1167,6 +1187,43 @@ async function bookEditor(view, book) {
         $("#pdf-name").textContent = f ? f.name : t("editor.load_pdf");
         preview();
     });
+    // Вставка разметки в текст там, где стоит курсор.
+    const insertAt = (snippet) => {
+        const ta = form.content, s = ta.selectionStart ?? ta.value.length, e2 = ta.selectionEnd ?? s;
+        const before = ta.value.slice(0, s), after = ta.value.slice(e2);
+        // Блок должен стоять отдельным абзацем — добавляем пустые строки.
+        const padB = before && !/\n\n$/.test(before) ? (/\n$/.test(before) ? "\n" : "\n\n") : "";
+        const padA = after && !/^\n\n/.test(after) ? (/^\n/.test(after) ? "\n" : "\n\n") : "";
+        ta.value = before + padB + snippet + padA + after;
+        ta.focus();
+        const pos = (before + padB + snippet).length;
+        ta.setSelectionRange(pos, pos);
+    };
+    $("#ins-formula").addEventListener("click", () => insertAt("$$ a^2 + b^2 = c^2 $$"));
+    $("#ins-head").addEventListener("click", () => insertAt("## " + t("editor.heading_ph")));
+    $("#ins-img").addEventListener("click", () => $("#img-file").click());
+    $("#img-file").addEventListener("change", async (e) => {
+        const f = e.target.files[0];
+        e.target.value = "";
+        if (!f) return;
+        if (f.size > 5 * 1024 * 1024) return toast(t("editor.img_big"), "error");
+        try {
+            const fd = new FormData(); fd.append("file", f);
+            const res = await api(`/api/books/${book.id}/images`, { method: "POST", form: fd });
+            // Подпись под картинкой — имя файла без расширения, её можно исправить.
+            insertAt(res.markup.replace("![]", `![${f.name.replace(/\.[^.]+$/, "").replace(/[\[\]]/g, "")}]`));
+            toast(t("editor.img_inserted"), "ok");
+        } catch (err) { toastError(err); }
+    });
+    $("#cover-file").addEventListener("change", (e) => {
+        const f = e.target.files[0];
+        if (f && f.size > 5 * 1024 * 1024) { e.target.value = ""; return toast(t("editor.img_big"), "error"); }
+        $("#cover-img-name").textContent = f ? f.name : t("editor.cover_load");
+    });
+    $("#cover-del")?.addEventListener("click", async () => {
+        try { await api(`/api/books/${book.id}/cover`, { method: "DELETE" }); toast(t("common.saved"), "ok"); Oqu.router.render(); }
+        catch (err) { toastError(err); }
+    });
     $("#pdf-del")?.addEventListener("click", async () => {
         if (!await confirmDialog({ title: t("editor.pdf_delete"), ok: t("common.delete"), danger: true })) return;
         try { await api(`/api/books/${book.id}/file`, { method: "DELETE" }); toast(t("common.saved"), "ok"); Oqu.router.render(); }
@@ -1201,6 +1258,11 @@ async function bookEditor(view, book) {
                 btn.textContent = t("editor.uploading");
                 const fd = new FormData(); fd.append("file", pdf);
                 await api(`/api/books/${saved.id}/file`, { method: "POST", form: fd });
+            }
+            const coverFile = $("#cover-file").files[0];
+            if (coverFile) {
+                const fd = new FormData(); fd.append("file", coverFile);
+                await api(`/api/books/${saved.id}/cover`, { method: "POST", form: fd });
             }
             toast(t(isNew ? "editor.created" : "common.saved"), "ok");
             location.hash = "#/book/" + saved.id;

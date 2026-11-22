@@ -22,6 +22,7 @@ import hashlib
 import io
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -62,7 +63,8 @@ PUBLIC_MODE = os.environ.get("OQU_PUBLIC") == "1"
 TRUST_PROXY = os.environ.get("OQU_TRUST_PROXY") == "1"
 
 for _folder in (UPLOAD_DIR, os.path.join(UPLOAD_DIR, "books"),
-                os.path.join(UPLOAD_DIR, "students"), LOG_DIR):
+                os.path.join(UPLOAD_DIR, "students"),
+                os.path.join(UPLOAD_DIR, "images"), LOG_DIR):
     os.makedirs(_folder, exist_ok=True)
 
 # --- Файловый журнал сервера с ротацией ---------------------------------
@@ -88,6 +90,7 @@ OPENAPI_TAGS = [
     {"name": "Модерация", "description": "Пользователи, баны, заявки, "
                                          "студенты."},
     {"name": "Журнал", "description": "Журнал действий (усложнение)."},
+    {"name": "Игра", "description": "Мини-игра «Парақ»: прогресс и рекорды."},
     {"name": "Интерфейс", "description": "Переводы и служебное."},
 ]
 
@@ -313,6 +316,16 @@ def _save_upload(folder: str, data: bytes, ext: str) -> str:
     return name
 
 
+def _image_ext(data: bytes) -> str:
+    """Расширение картинки по её первым байтам (а не по имени файла)."""
+    ext = next((e for sig, e in _IMAGE_SIGNATURES if data.startswith(sig)),
+               None)
+    if ext is None or (ext == ".webp" and data[8:12] != b"WEBP"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "Нужна картинка: JPG, PNG или WebP")
+    return ext
+
+
 def _remove_upload(folder: str, name: Optional[str]) -> None:
     if name:
         try:
@@ -465,12 +478,7 @@ async def student_request(request: Request, file: UploadFile = File(...),
                               require_perm("student.apply")),
                           db: sqlite3.Connection = Depends(get_db)):
     data = await _read_limited(file, MAX_IMAGE_BYTES)
-    ext = next((e for sig, e in _IMAGE_SIGNATURES if data.startswith(sig)),
-               None)
-    if ext is None or (ext == ".webp" and data[8:12] != b"WEBP"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                            "Нужна фотография: JPG, PNG или WebP")
-    name = _save_upload("students", data, ext)
+    name = _save_upload("students", data, _image_ext(data))
     try:
         rid = service.submit_student_request(db, user, name)
     except service.ServiceError:
@@ -624,7 +632,10 @@ def remove_book(book_id: int, request: Request,
                 user: sqlite3.Row = Depends(require_user),
                 db: sqlite3.Connection = Depends(get_db)):
     title = service.get_book(db, book_id)["title"]
+    images = service.book_files(db, book_id)
     _remove_upload("books", service.delete_book(db, user, book_id))
+    for name in images:
+        _remove_upload("images", name)
     audit(db, request, user["id"], "book_delete", f"#{book_id} «{title}»")
     return {"detail": "Книга удалена"}
 
@@ -659,6 +670,69 @@ def delete_book_file(book_id: int, request: Request,
     service.set_book_file(db, book_id, None)
     audit(db, request, user["id"], "book_file_delete", f"#{book_id}")
     return {"detail": "Скан удалён"}
+
+
+@app.post("/api/books/{book_id}/cover", response_model=schemas.Message,
+          tags=["Книги"], summary="Картинка обложки (JPG/PNG/WebP до 5 МБ)")
+async def upload_cover(book_id: int, request: Request,
+                       file: UploadFile = File(...),
+                       user: sqlite3.Row = Depends(require_user),
+                       db: sqlite3.Connection = Depends(get_db)):
+    book = service.get_book(db, book_id)
+    service.require_book_rights(user, book, "book.edit", "book.edit_own")
+    data = await _read_limited(file, MAX_IMAGE_BYTES)
+    name = _save_upload("images", data, _image_ext(data))
+    _remove_upload("images", service.set_book_cover(db, book_id, name))
+    audit(db, request, user["id"], "book_cover", f"#{book_id}")
+    return {"detail": "Обложка загружена"}
+
+
+@app.delete("/api/books/{book_id}/cover", response_model=schemas.Message,
+            tags=["Книги"], summary="Убрать картинку обложки")
+def delete_cover(book_id: int, request: Request,
+                 user: sqlite3.Row = Depends(require_user),
+                 db: sqlite3.Connection = Depends(get_db)):
+    book = service.get_book(db, book_id)
+    service.require_book_rights(user, book, "book.edit", "book.edit_own")
+    _remove_upload("images", service.set_book_cover(db, book_id, None))
+    audit(db, request, user["id"], "book_cover_delete", f"#{book_id}")
+    return {"detail": "Обложка убрана"}
+
+
+@app.post("/api/books/{book_id}/images", response_model=schemas.ImageOut,
+          tags=["Книги"],
+          summary="Иллюстрация для текста книги (JPG/PNG/WebP до 5 МБ)")
+async def upload_book_image(book_id: int, request: Request,
+                            file: UploadFile = File(...),
+                            user: sqlite3.Row = Depends(require_user),
+                            db: sqlite3.Connection = Depends(get_db)):
+    book = service.get_book(db, book_id)
+    service.require_book_rights(user, book, "book.edit", "book.edit_own")
+    data = await _read_limited(file, MAX_IMAGE_BYTES)
+    name = _save_upload("images", data, _image_ext(data))
+    try:
+        markup = service.add_book_image(db, book_id, name)
+    except service.ServiceError:
+        _remove_upload("images", name)
+        raise
+    audit(db, request, user["id"], "book_image", f"#{book_id}")
+    return {"name": name, "url": f"/media/{name}", "markup": markup}
+
+
+_MEDIA_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|png|webp)$")
+
+
+@app.get("/media/{name}", include_in_schema=False)
+def media(name: str):
+    """Картинки обложек и иллюстраций. Имена случайные (32 hex-символа),
+    угадать чужой файл нельзя; путь проверяется регулярным выражением."""
+    if not _MEDIA_NAME.match(name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Нет такого файла")
+    path = os.path.join(UPLOAD_DIR, "images", name)
+    if not os.path.isfile(path):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Нет такого файла")
+    return FileResponse(path, headers={
+        "Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.post("/api/books/{book_id}/buy", response_model=schemas.Message,
@@ -789,6 +863,45 @@ def delete_bookmark(bookmark_id: int,
          summary="Статистика прочитанного по всем пользователям")
 def stats(db: sqlite3.Connection = Depends(get_db)):
     return service.reading_stats(db)
+
+
+# ===========================================================================
+# Мини-игра «Парақ»
+# ===========================================================================
+@app.get("/api/game/config", tags=["Игра"],
+         summary="Улучшения и константы мини-игры")
+def game_config():
+    return service.game_config()
+
+
+@app.get("/api/game/me", tags=["Игра"], summary="Мой прогресс в игре")
+def game_me(user: sqlite3.Row = Depends(require_user),
+            db: sqlite3.Connection = Depends(get_db)):
+    return service.get_game(db, user["id"])
+
+
+@app.put("/api/game/me", tags=["Игра"],
+         summary="Сохранить прогресс (с проверкой на накрутку)")
+def game_save(data: schemas.GameSaveIn,
+              user: sqlite3.Row = Depends(require_user),
+              db: sqlite3.Connection = Depends(get_db)):
+    return service.save_game(db, user["id"], data.pages, data.pages_total,
+                             data.clicks, data.upgrades)
+
+
+@app.delete("/api/game/me", response_model=schemas.Message, tags=["Игра"],
+            summary="Начать игру заново")
+def game_reset(request: Request, user: sqlite3.Row = Depends(require_user),
+               db: sqlite3.Connection = Depends(get_db)):
+    service.reset_game(db, user["id"])
+    audit(db, request, user["id"], "game_reset", "прогресс игры сброшен")
+    return {"detail": "Игра начата заново"}
+
+
+@app.get("/api/game/leaderboard", tags=["Игра"],
+         summary="Рекорды игры (все игроки на равных)")
+def game_top(db: sqlite3.Connection = Depends(get_db)):
+    return service.game_leaderboard(db)
 
 
 # ===========================================================================

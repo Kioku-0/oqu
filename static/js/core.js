@@ -342,6 +342,7 @@ function navItems() {
         { href: "#/", icon: "home", key: "nav.home", match: /^#\/?$/ },
         { href: "#/catalog", icon: "grid", key: "nav.catalog", match: /^#\/catalog/ },
         { href: "#/bookcase", icon: "case", key: "nav.bookcase", match: /^#\/bookcase/ },
+        { href: "#/game", icon: "game", key: "nav.game", match: /^#\/game/ },
         { href: "#/shelf", icon: "bookmark", key: "nav.shelf", match: /^#\/shelf/, auth: true },
         { href: "#/stats", icon: "chart", key: "nav.stats", match: /^#\/stats/ },
     ];
@@ -657,6 +658,8 @@ Oqu.router = {
     async render() {
         const { path, params } = this.parse();
         $(".menu-list")?.remove();
+        // Страница может оставить «уборку» (таймеры, сохранение игры) — выполняем.
+        try { Oqu.leave?.(); } finally { Oqu.leave = null; }
         renderChrome();
         const view = $("#view");
         view.classList.remove("wide");
@@ -722,16 +725,79 @@ function coverPattern(b) {
     return PATTERNS[hash("p" + (b.id ?? b.title)) % PATTERNS.length];
 }
 
+/* Имя загруженной картинки: 32 hex-символа + расширение (так их создаёт сервер). */
+const MEDIA_RE = /^[0-9a-f]{32}\.(png|jpg|webp)$/;
+
 function cover(b, extra = "") {
     const flags = [];
     if (b.is_paid) flags.push(`<span class="badge">${icon("lock", "i-sm")}</span>`);
     if (b.has_file) flags.push(`<span class="badge">PDF</span>`);
+    // Обложка-картинка (например, портрет автора): картинка во всю обложку,
+    // название и автор — на полосе снизу.
+    if (b.cover_image && MEDIA_RE.test(b.cover_image)) {
+        return `<div class="cover has-img" style="--c:${esc(b.cover_color || "#1f5f4a")}" ${extra}>
+            <img class="cover-img" src="/media/${b.cover_image}" alt="" loading="lazy" decoding="async">
+            <div class="cover-flags">${flags.join("")}</div>
+            <div class="cover-band"><div class="cover-title">${esc(b.title)}</div>
+            <div class="cover-author">${esc(b.author)}</div></div></div>`;
+    }
     const pattern = coverPattern(b);
     const layout = pattern === "band" ? "band" : LAYOUTS[hash("l" + (b.id ?? b.title)) % LAYOUTS.length];
     return `<div class="cover p-${pattern} l-${layout}" style="--c:${esc(b.cover_color || "#1f5f4a")}" ${extra}>
         <div class="cover-flags">${flags.join("")}</div>
         <div class="cover-title">${esc(b.title)}</div>
         <div class="cover-author">${esc(b.author)}</div></div>`;
+}
+
+/* ---------- Текст книги с иллюстрациями и формулами ----------------------
+ * Простая разметка (как в Markdown/LaTeX), блоки разделяются пустой строкой:
+ *   ## Заголовок главы
+ *   ![Подпись](img:<имя файла>)   — иллюстрация, загруженная в редакторе
+ *   $$ E = mc^2 $$                 — формула отдельной строкой
+ *   …текст \( a^2 + b^2 \) текст…  — формула внутри абзаца
+ * Всё экранируется (esc), картинки берутся только с нашего сервера. */
+function richText(content) {
+    const blocks = (content || "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+    const inline = (s) => esc(s).replace(/\\\((.+?)\\\)/g, (_m, tex) => `<span class="r-math" data-tex="${tex}">${tex}</span>`);
+    return blocks.map((p) => {
+        const img = p.match(/^!\[([^\]]*)\]\(img:([^)\s]+)\)$/);
+        if (img && MEDIA_RE.test(img[2])) {
+            return `<figure class="r-fig"><img src="/media/${img[2]}" alt="${esc(img[1])}" loading="lazy" decoding="async">
+                ${img[1] ? `<figcaption>${esc(img[1])}</figcaption>` : ""}</figure>`;
+        }
+        const math = p.match(/^\$\$([\s\S]+)\$\$$/);
+        if (math) return `<div class="r-math r-math-block" data-tex="${esc(math[1].trim())}" data-display="1">${esc(math[1].trim())}</div>`;
+        const head = p.match(/^(#{2,3})\s+(.+)$/);
+        if (head) return `<h${head[1].length} class="r-head">${inline(head[2])}</h${head[1].length}>`;
+        return `<p>${inline(p)}</p>`;
+    }).join("");
+}
+
+/* Формулы рисует библиотека Temml (LaTeX → MathML, лежит в static/vendor).
+ * Она подгружается только когда на странице действительно есть формулы. */
+let temmlLoading = null;
+function loadTemml() {
+    if (window.temml) return Promise.resolve();
+    temmlLoading ??= new Promise((resolve, reject) => {
+        const v = document.documentElement.dataset.v;
+        const css = document.createElement("link");
+        css.rel = "stylesheet"; css.href = `/static/vendor/temml/Temml-Local.css?v=${v}`;
+        document.head.appendChild(css);
+        const s = document.createElement("script");
+        s.src = `/static/vendor/temml/temml.min.js?v=${v}`;
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+    });
+    return temmlLoading;
+}
+async function renderMath(root) {
+    const items = $$(".r-math", root);
+    if (!items.length) return;
+    try { await loadTemml(); } catch { return; }   // без библиотеки остаётся текст формулы
+    items.forEach((el) => {
+        try { window.temml.render(el.dataset.tex, el, { displayMode: !!el.dataset.display, throwOnError: false }); }
+        catch { el.classList.add("r-math-error"); }
+    });
 }
 
 function starsMini(b) {

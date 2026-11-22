@@ -406,6 +406,18 @@ p { margin: 0 0 1em; }
 }
 .p-frame::before { inset: 7% 7% 7% 12%; border: 2px solid #fff; outline: 1px solid #fff; outline-offset: 3px; border-radius: 3px; opacity: .45; }
 .p-band::before { background: linear-gradient(transparent 34%, rgba(0,0,0,.55) 34% 66%, transparent 66%); opacity: .45; }
+/* Обложка-картинка: изображение во всю обложку, текст на тёмной полосе снизу */
+.cover.has-img { padding: 0; justify-content: flex-end; background: var(--c); }
+.cover.has-img::before, .cover.has-img::after { display: none; }
+.cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cover-band { position: relative; z-index: 1; padding: 9% 9% 9% 13%;
+    background: linear-gradient(180deg, transparent, rgba(0,0,0,.55) 30%, rgba(0,0,0,.78)); }
+.cover-band .cover-title { font-size: clamp(11px, 12cqi, 24px); -webkit-line-clamp: 3; }
+.cover-band .cover-author { margin-top: 4%; }
+.cover.has-img .cover-flags { z-index: 2; }
+/* Корешок книги у переплёта поверх картинки */
+.cover.has-img .cover-band::before { content: ""; position: absolute; left: 0; top: -400%; bottom: 0; width: 7%;
+    background: linear-gradient(90deg, rgba(0,0,0,.35), rgba(255,255,255,.12) 60%, transparent); pointer-events: none; }
 /* Варианты раскладки текста на обложке */
 .cover.l-center { justify-content: center; gap: 10%; text-align: center; padding-left: 13%; padding-right: 9%; }
 .cover.l-bottom { justify-content: flex-end; gap: 6%; }
@@ -721,6 +733,16 @@ body.reading .topbar { position: static; }
 .reader-text h1 { font-size: 1.7em; margin-bottom: .2em; }
 .reader-text .by { color: color-mix(in srgb, var(--rink) 60%, transparent); margin-bottom: 2.2em; font-style: italic; }
 .reader-text p { margin: 0 0 1.05em; text-indent: 1.5em; hyphens: auto; white-space: pre-line; }
+/* Иллюстрации, формулы и заголовки глав внутри текста книги */
+.reader-text .r-fig { margin: 2em auto; text-align: center; }
+.reader-text .r-fig img { max-width: 100%; max-height: 70vh; border-radius: 4px; background: #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,.12), 0 10px 30px rgba(0,0,0,.1); }
+.reader-text .r-fig figcaption { margin-top: .7em; font-size: .82em; font-style: italic; color: color-mix(in srgb, var(--rink) 65%, transparent); }
+.reader-text .r-head { font-size: 1.25em; margin: 2em 0 .8em; text-indent: 0; }
+.reader-text h3.r-head { font-size: 1.08em; }
+.r-math-block { display: block; margin: 1.3em 0; overflow-x: auto; text-align: center; text-indent: 0; }
+.r-math-error { font-family: ui-monospace, Consolas, monospace; font-size: .85em; color: var(--danger); }
+.reader-text math { font-size: 1.08em; }
 .reader-text p.mark { background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 4px; }
 .reader-pdf { width: 100%; height: calc(100vh - 120px); border: 0; display: block; background: #525659; }
 .reader-panel {
@@ -767,6 +789,73 @@ body.reading .topbar { position: static; }
 .bar { height: 10px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
 
+/* --- Мини-игра «Парақ» ------------------------------------------------ */
+.game-teaser { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: var(--radius); color: var(--ink);
+    border: 1px solid var(--line); background: linear-gradient(100deg, var(--accent-soft), var(--surface) 60%); box-shadow: var(--shadow); }
+.game-teaser:hover { text-decoration: none; border-color: var(--accent); }
+.gt-ic { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); flex: none; }
+.gt-ic .i { width: 26px; height: 26px; }
+.gt-txt { flex: 1; min-width: 0; }
+.gt-txt b { display: block; font-family: var(--serif); font-size: 18px; font-weight: 600; }
+.gt-txt small { color: var(--muted); }
+.game { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1.15fr); gap: 24px; align-items: start; }
+.g-stage { position: sticky; top: 130px; text-align: center; background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px 20px 18px; overflow: hidden;
+    background-image: radial-gradient(120% 70% at 50% 0%, var(--accent-soft), transparent 60%); }
+.g-counter b { display: block; font-family: var(--serif); font-size: clamp(38px, 5vw, 56px); font-weight: 600; line-height: 1;
+    letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.g-counter span { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; }
+.g-sub { margin: 6px 0 4px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.g-book { position: relative; display: block; margin: 8px auto 0; width: min(300px, 80%); border: 0; background: none;
+    cursor: pointer; padding: 10px; border-radius: 16px; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.g-book svg { width: 100%; display: block; filter: drop-shadow(0 10px 14px rgba(0,0,0,.18)); transition: transform .08s ease; }
+.g-book:hover svg { transform: translateY(-3px) rotate(-1deg); }
+.g-book:active svg { transform: scale(.95); }
+.g-cover { fill: var(--accent); }
+.g-paper { fill: #fbf7ee; stroke: rgba(0,0,0,.12); }
+.g-lines { fill: none; stroke: rgba(60,45,20,.25); stroke-width: 2; stroke-linecap: round; }
+.g-ribbon { fill: #c8902e; }
+.g-flip { fill: #fff; opacity: 0; transform-origin: 100px 80px; }
+.g-book.flip .g-flip { animation: g-flip .35s ease-out; }
+@keyframes g-flip { 0% { opacity: .95; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(-1); } }
+.g-pop { position: absolute; pointer-events: none; transform: translate(-50%, -50%); font: 700 20px var(--serif); color: var(--accent);
+    text-shadow: 0 1px 0 var(--surface); animation: g-pop .9s ease-out forwards; }
+@keyframes g-pop { to { transform: translate(-50%, -90px); opacity: 0; } }
+.g-hint { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+/* Маленький шкаф: каждое улучшение — корешок, разовые — предметы декора */
+.g-mini-case { margin: 0 auto 12px; max-width: 360px; padding: 8px 10px 0; border-radius: 6px 6px 0 0;
+    background: linear-gradient(180deg, #4a2f1b, #3a2414); border: 8px solid #6b4428; border-bottom: 0; }
+.g-case-row { height: 58px; display: flex; align-items: flex-end; gap: 2px; padding: 0 4px; overflow: hidden; }
+.g-plank { height: 9px; margin: 0 -14px 8px; background: linear-gradient(180deg, #b07b4d, #8a5a35 45%, #5c3a21); box-shadow: 0 3px 5px rgba(0,0,0,.35); }
+.g-spine { display: block; flex: none; width: 9px; height: var(--h); border-radius: 2px 2px 0 0; background:
+    linear-gradient(90deg, rgba(0,0,0,.3), rgba(255,255,255,.15) 40%, rgba(0,0,0,.2)), var(--c); animation: g-in .3s ease-out; }
+.g-case-row .decor { animation: g-in .3s ease-out; }
+@keyframes g-in { from { transform: translateY(-14px); opacity: 0; } }
+.g-empty { color: rgba(255,255,255,.6); font-size: 12px; margin: auto; align-self: center; }
+.g-meta { font-size: 13px; color: var(--muted); }
+.g-save { font-size: 12px; color: var(--muted); min-height: 18px; margin: 4px 0 8px; }
+.g-shop { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; }
+.g-shop h2 { margin-bottom: 12px; }
+.g-special-h { font-family: var(--font); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 18px 0 10px; }
+.g-list { display: flex; flex-direction: column; gap: 6px; }
+.g-up { display: grid; grid-template-columns: 40px 1fr auto; gap: 12px; align-items: center; width: 100%; text-align: left; cursor: pointer;
+    padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    transition: border-color .15s, background .15s, transform .1s; }
+.g-up:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.g-up:active:not(:disabled) { transform: scale(.99); }
+.g-up:disabled { cursor: default; }
+.g-up:disabled:not(.done) .g-up-txt, .g-up:disabled:not(.done) .g-up-ic { opacity: .5; }
+.g-up-ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); color: var(--accent); }
+.g-up-txt b { display: block; font-weight: 600; }
+.g-up-txt small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+.g-up-side { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.g-cost { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); white-space: nowrap; }
+.g-up:disabled:not(.done) .g-cost { color: var(--muted); }
+.g-owned { font-family: var(--serif); font-size: 20px; font-weight: 600; line-height: 1; color: var(--ink); }
+.g-up.done { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.g-top { margin-top: 22px; }
+.g-top .section-head { margin-bottom: 6px; }
+
 /* Редактор книги */
 .editor { display: grid; grid-template-columns: 1fr 240px; gap: 28px; align-items: start; }
 .editor-side { position: sticky; top: 130px; display: flex; flex-direction: column; gap: 12px; }
@@ -780,6 +869,10 @@ body.reading .topbar { position: static; }
 .drop { border: 2px dashed var(--line); border-radius: var(--radius); padding: 18px; text-align: center; color: var(--muted); cursor: pointer; display: block; }
 .drop:hover, .drop.over { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .drop input { display: none; }
+.drop.drop-sm { padding: 10px; font-size: 13px; }
+.ed-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.ed-tools .hint { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+.ed-sym { font-family: var(--serif); font-size: 15px; line-height: 1; min-width: 14px; text-align: center; }
 
 /* Админка */
 .admin-filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -879,6 +972,8 @@ body.reading .topbar { position: static; }
     .filters-toggle { display: inline-flex; }
     .book-page { grid-template-columns: 200px 1fr; gap: 24px; }
     .editor { grid-template-columns: 1fr; }
+    .game { grid-template-columns: 1fr; }
+    .g-stage { position: static; }
     .editor-side { position: static; flex-direction: row; flex-wrap: wrap; }
     .editor-side .cover { width: 140px; }
     .hero { grid-template-columns: 1fr; }

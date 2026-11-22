@@ -183,6 +183,26 @@ CREATE TABLE IF NOT EXISTS unban_requests (
     CHECK (status IN ('pending', 'approved', 'rejected'))
 );
 
+-- Иллюстрации внутри текста книги (картинки, схемы). В тексте на них
+-- ссылается строка вида ![подпись](img:<имя файла>) --------------------------
+CREATE TABLE IF NOT EXISTS book_images (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id    INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    file_name  TEXT    NOT NULL UNIQUE,
+    created_at TEXT    NOT NULL
+);
+
+-- Мини-игра «Парақ» (кликер): сохранение прогресса и таблица рекордов ------
+CREATE TABLE IF NOT EXISTS game_saves (
+    user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    pages       REAL    NOT NULL DEFAULT 0,    -- сколько страниц сейчас
+    pages_total REAL    NOT NULL DEFAULT 0,    -- собрано за всё время
+    clicks      INTEGER NOT NULL DEFAULT 0,
+    upgrades    TEXT    NOT NULL DEFAULT '{}', -- купленные улучшения (JSON)
+    updated_at  TEXT    NOT NULL,
+    CHECK (pages >= 0 AND pages_total >= pages AND clicks >= 0)
+);
+
 -- Индексы для частых запросов (поиск, сортировка, пагинация) -----------------
 CREATE INDEX IF NOT EXISTS idx_books_author  ON books(author);
 CREATE INDEX IF NOT EXISTS idx_books_title   ON books(title);
@@ -192,6 +212,8 @@ CREATE INDEX IF NOT EXISTS idx_comments_book ON comments(book_id);
 CREATE INDEX IF NOT EXISTS idx_log_created   ON action_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_log_user      ON action_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_bookmarks     ON bookmarks(user_id, book_id);
+CREATE INDEX IF NOT EXISTS idx_book_images   ON book_images(book_id);
+CREATE INDEX IF NOT EXISTS idx_game_total    ON game_saves(pages_total);
 """
 
 # Столбцы, добавленные после первой версии. Если база создана старой версией
@@ -204,6 +226,7 @@ _ADDED_COLUMNS = (
     ("books", "external_url", "TEXT NOT NULL DEFAULT ''"),
     ("books", "price", "INTEGER NOT NULL DEFAULT 0"),
     ("books", "cover_pattern", "TEXT NOT NULL DEFAULT 'auto'"),
+    ("books", "cover_image", "TEXT"),          # картинка обложки (имя файла)
     ("comments", "edited_at", "TEXT"),
     ("unban_requests", "reviewed_by", "INTEGER"),
 )
