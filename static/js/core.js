@@ -513,7 +513,7 @@ function formDialog({ title, fields, ok = t("common.save"), intro = "" }) {
 const DEMO_ACCOUNTS = [
     ["muhan", "owner", ""], ["khadizat", "editor", ""], ["moder01", "moderator", ""],
     ["author01", "author", ""], ["author02", "author", ""], ["student01", "student", ""],
-    ["reader01", "user", ""], ["applicant01", "user", "demo.applicant"],
+    ["reader01", "user", ""], ["vladimir_p", "user", ""], ["applicant01", "user", "demo.applicant"],
     ["spammer01", "user", "demo.banned_temp"], ["banned01", "user", "demo.banned_forever"],
 ];
 // В публичном режиме (сайт открыт в интернет) список и пароль не показываем.

@@ -18,10 +18,14 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import secrets
+import shutil
 import struct
 import sys
 import zlib
+from datetime import timedelta
+from typing import Optional
 
 from app import service
 from app.db import connect
@@ -50,6 +54,28 @@ PD_NOTE_KK = ("Бұл — шығарманың бастапқы үзіндісі
 PD_NOTE_EN = ("This is the opening excerpt. The full text is in the public "
               "domain and an editor can add it via “Edit book” — from a .txt "
               "file or as a PDF scan.")
+
+def _demo_json(name: str):
+    """Прочитать демонстрационные данные из app/demo/<name>."""
+    path = os.path.join(DEMO_DIR, name)
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+DEMO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo")
+# Произведения, которые в базе лежат целиком (короткие стихи) — им не нужна
+# пометка «это начальный фрагмент».
+COMPLETE_WORKS = {"Ворона и Лисица", "Сказка о рыбаке и рыбке",
+                  "Белая берёза", "Ночь, улица, фонарь, аптека", "Sonnet 18"}
+COPYRIGHT_NOTE = ("## Об этой карточке\n\nЭто аннотация, которую редакция "
+                  "«Оқу» написала сама по открытым сведениям о книге. Полный "
+                  "текст защищён авторским правом ({holder}), поэтому здесь "
+                  "его нет: книгу можно купить у официального издателя или "
+                  "взять в библиотеке.")
+MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля",
+          "августа", "сентября", "октября", "ноября", "декабря")
 
 PYTHON_BOOK = _demo("python_book")
 
@@ -156,7 +182,7 @@ def _reset() -> None:
         except OSError:
             pass
     # Загруженные файлы старой демо-базы больше ни к чему не привязаны.
-    for sub in ("books", "students"):
+    for sub in ("books", "students", "images"):
         folder = os.path.join(os.path.dirname(DB_PATH), "uploads", sub)
         if os.path.isdir(folder):
             for name in os.listdir(folder):
@@ -180,42 +206,49 @@ def seed() -> None:
                                     display_name=display, language=lang)
         return service.get_user(db, uid)
 
+    # Имена — одногруппники Мұхана (с их согласия, для живости демо).
     owner = user("muhan", "muhan@oqu.kz", "owner", "Мұхан Надирхалиф")
     editor = user("khadizat", "khadizat@oqu.kz", "editor",
                   "Жоробекова Хадизат", "kk")
-    moder = user("moder01", "moder@oqu.kz", "moderator", "Модератор Айгерім")
+    moder = user("moder01", "moder@oqu.kz", "moderator", "Алтынбек")
     author = user("author01", "author@oqu.kz", "author", "Команда «Оқу»")
-    student = user("student01", "student@oqu.kz", "user", "Студент Нұрлан",
-                   "kk")
+    student = user("student01", "student@oqu.kz", "user", "Мұратхан", "kk")
     service.verify_student(db, "owner", student["id"])
     student = service.get_user(db, student["id"])
-    reader = user("reader01", "reader@oqu.kz", "user", "Читатель Дана")
-    spammer = user("spammer01", "spam@oqu.kz", "user", "Нарушитель")
-    applicant = user("applicant01", "applicant@oqu.kz", "user",
-                     "Абитуриент Ерлан", "kk")
+    reader = user("reader01", "reader@oqu.kz", "user", "Данияр")
+    spammer = user("spammer01", "spam@oqu.kz", "user", "Едіге")
+    applicant = user("applicant01", "applicant@oqu.kz", "user", "Сейілхан",
+                     "kk")
     banned = user("banned01", "banned@oqu.kz", "user", "Забаненный навсегда")
-    author2 = user("author02", "author2@oqu.kz", "author", "Автор Айсұлу",
-                   "kk")
+    author2 = user("author02", "author2@oqu.kz", "author", "Темірлан", "kk")
+    vladimir = user("vladimir_p", "vladimir@oqu.kz", "user", "Владимир П.")
+
+    ext = _demo_json("texts_ext.json")   # продолжения текстов (1–4 стр.)
+
+    def full_text(title, text, lang):
+        """Текст книги: скачанное продолжение (если есть) + пометка."""
+        note = {"kk": PD_NOTE_KK, "en": PD_NOTE_EN}.get(lang, PD_NOTE)
+        base = text.split("\n\n" + note)[0]
+        if title in COMPLETE_WORKS:
+            return ext.get(title, base)
+        return ext.get(title, base) + "\n\n" + note
 
     ids: dict[str, int] = {}
     for title, writer, year, genre, lang, color, text, tags, desc in BOOKS:
         ids[title] = service.add_book(
             db, "editor", title, writer, year=year, genre=genre,
-            language=lang, description=desc, content=text,
+            language=lang, description=desc,
+            content=full_text(title, text, lang),
             cover_color=color, tags=tags, added_by=editor["id"])
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "demo", "books_extra.json"),
-              encoding="utf-8") as fh:
-        for item in json.load(fh):
-            ids[item["title"]] = service.add_book(
-                db, "editor", item["title"], item["author"],
-                year=item["year"], genre=item["genre"],
-                language=item["language"], description=item["description"],
-                content=item["content"] + "\n\n" + {
-                    "kk": PD_NOTE_KK, "en": PD_NOTE_EN}.get(
-                        item["language"], PD_NOTE),
-                cover_color=item["color"], cover_pattern=item["pattern"],
-                tags=item["tags"], added_by=editor["id"])
+    for item in _demo_json("books_extra.json"):
+        ids[item["title"]] = service.add_book(
+            db, "editor", item["title"], item["author"],
+            year=item["year"], genre=item["genre"],
+            language=item["language"], description=item["description"],
+            content=full_text(item["title"], item["content"],
+                              item["language"]),
+            cover_color=item["color"], cover_pattern=item["pattern"],
+            tags=item["tags"], added_by=editor["id"])
 
     ids["Основы Python"] = service.add_book(
         db, "author", "Основы Python: от переменной до REST API",
@@ -259,7 +292,7 @@ def seed() -> None:
         (editor, "Дама с собачкой", "read", None, 5),
         (editor, "Герой нашего времени", "read", None, 4),
         (moder, "Преступление и наказание", "read", None, 5),
-        (moder, "Alice's Adventures in Wonderland", "reading", 600, 4),
+        (moder, "Alice's Adventures in Wonderland", "reading", 600, 5),
     ]
     for who, title, status, position, rating in plan:
         service.set_shelf_status(db, who["id"], ids[title], status)
@@ -284,9 +317,9 @@ def seed() -> None:
     service.add_comment(db, editor, ids["Евгений Онегин"],
                         "Полный текст добавим к следующему семестру.")
 
-    # Второй автор: своя бесплатная книга и комментарий с припиской.
+    # Второй автор (Темірлан): своя бесплатная книга и платный бестселлер.
     ids["Сөре"] = service.add_book(
-        db, "author", "Сөредегі кітап", "Автор Айсұлу", year=2026,
+        db, "author", "Сөредегі кітап", "Темірлан", year=2026,
         genre="рассказ", language="kk",
         description="Қысқа әңгіме: кітапханадағы ұмытылған кітап туралы.",
         content="Кітапхананың ең жоғарғы сөресінде бір кітап тұрды. Оны "
@@ -297,6 +330,30 @@ def seed() -> None:
         tags=["әңгіме", "кітапхана"], added_by=author2["id"])
     service.add_comment(db, author2, ids["Сөре"],
                         "Оқығандарыңызға рақмет! Пікір қалдырыңыз.")
+    ids["Как стать амбассадором ИИ"] = service.add_book(
+        db, "author", "Как стать амбассадором ИИ", "Темірлан", year=2026,
+        genre="саморазвитие", language="ru",
+        description="Вымышленная история о том, как школьник научился "
+                    "разговаривать с нейросетями и к двадцати годам стал "
+                    "миллиардером. С формулой успеха внутри.",
+        content=_demo("ai_ambassador"), cover_color="#0f4c81",
+        cover_pattern="sun", is_paid=True, price=4990, paid_days=30,
+        tags=["искусственный интеллект", "саморазвитие", "бестселлер"],
+        added_by=author2["id"])
+    service.add_comment(db, author2, ids["Как стать амбассадором ИИ"],
+                        "Первые десять читателей получат бесплатную "
+                        "консультацию по промптам. Шучу. Или нет.")
+
+    _add_easter_eggs(db, editor, ids)
+    _add_pictures(db, ids)
+    people = {"daniyar": reader, "murathan": student, "seyilkhan": applicant,
+              "vladimir_p": vladimir, "altynbek": moder, "khadizat": editor,
+              "edige": spammer}
+    _add_comments(db, people, ids)
+    _add_game_records(db, {"muhan": owner, "daniyar": reader,
+                           "temirlan": author2, "altynbek": moder,
+                           "murathan": student, "vladimir_p": vladimir,
+                           "seyilkhan": applicant})
     for who, title in ((reader, "Капитанская дочка"),
                        (reader, "Moby-Dick"), (student, "Шинель"),
                        (student, "Отцы и дети"), (moder, "Каштанка"),
@@ -314,12 +371,231 @@ def seed() -> None:
                      seconds=None)
     # Заявка на статус студента с картинкой «студбилета» — для модератора.
     service.submit_student_request(db, applicant, _demo_student_card())
+    # Комментарии, добавленные выше напрямую, «состарим» на три недели,
+    # чтобы на сайте не было «46 секунд назад» рядом с недельными отзывами.
+    recent = (service._now() - timedelta(minutes=30)).strftime(
+        service.DATETIME_FMT)
+    for (cid,) in db.execute("SELECT id FROM comments WHERE created_at >= ?",
+                             (recent,)).fetchall():
+        when = service._now() - timedelta(days=22, minutes=-cid * 37)
+        db.execute("UPDATE comments SET created_at = ? WHERE id = ?",
+                   (when.strftime(service.DATETIME_FMT), cid))
+    db.commit()
     service.log_action(db, owner["id"], "seed", "демо-данные созданы")
 
     count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     print(f"Готово: {len(ids)} книг, {count} пользователей. Вход: muhan / "
           f"{DEMO_PASSWORD}")
     db.close()
+
+
+def _add_easter_eggs(db, editor, ids: dict) -> None:
+    """Пасхалки: карточки «Гарри Поттера» и всех томов Re:Zero.
+
+    Названия, авторы и годы — общеизвестные факты; аннотации написаны
+    нами. Обложки рисуются сайтом (картинки издателей не используются).
+    """
+    for item in _demo_json("harry_potter.json"):
+        ids[item["title"]] = service.add_book(
+            db, "editor", item["title"], "Джоан Роулинг", year=item["year"],
+            genre="фэнтези", language="ru", description=item["description"],
+            content=item["content"] + "\n\n" + COPYRIGHT_NOTE.format(
+                holder="© J. K. Rowling"),
+            cover_color=item["color"], cover_pattern=item["pattern"],
+            tags=["гарри поттер", "фэнтези", "пасхалка"],
+            added_by=editor["id"])
+
+    rz = _demo_json("rezero.json")
+    for arc in rz.get("arcs", []):
+        size = arc["to"] - arc["from"] + 1
+        for number in range(arc["from"], arc["to"] + 1):
+            date = rz["dates"][number - 1]
+            year, month, day = (int(x) for x in date.split("-"))
+            when = f"{day} {MONTHS[month - 1]} {year} года"
+            k = number - arc["from"] + 1
+            about = (f"Том {number} — {k}-й из {size} томов {arc['n']}-й "
+                     f"арки.")
+            if k == 1:
+                about += " С него начинается новая арка."
+            elif k == size and arc["n"] < len(rz["arcs"]):
+                about += " Им эта арка завершается."
+            # Номер тома — в начале, чтобы его было видно на обложке.
+            title = f"Re:Zero. Том {number}. Жизнь с нуля в альтернативном " \
+                    "мире"
+            ids[title] = service.add_book(
+                db, "editor", title, rz["author"], year=year,
+                genre="ранобэ", language="ru",
+                description=f"Арка {arc['n']} «{arc['name']}». Японское "
+                            f"издание — {when}.",
+                content=(f"## О серии\n\n{rz['about']}\n\n"
+                         f"{rz['heroes']}\n\n"
+                         f"## Арка {arc['n']}. «{arc['name']}»\n\n"
+                         f"{arc['premise']}\n\n## Этот том\n\n{about} "
+                         f"Японское издание вышло {when}. "
+                         f"{rz['publisher']}\n\n"
+                         + COPYRIGHT_NOTE.format(
+                             holder="© Таппэй Нагацуки, Kadokawa")),
+                cover_color=arc["color"], cover_pattern=arc["pattern"],
+                tags=["re:zero", "ранобэ", "пасхалка"],
+                added_by=editor["id"])
+
+
+# Обложки-портреты авторов (общественное достояние, источники —
+# app/demo/img/SOURCES.json) и иллюстрации Джона Тенниела к «Алисе».
+COVER_IMAGES = {
+    "Қара сөздер": "abai", "Ғылым таппай мақтанба": "abai",
+    "Анна Каренина": "tolstoy", "Евгений Онегин": "pushkin",
+    "Преступление и наказание": "dostoevsky", "Мёртвые души": "gogol",
+    "Герой нашего времени": "lermontov", "Дама с собачкой": "chekhov",
+    "Pride and Prejudice": "austen", "Hamlet": "shakespeare",
+    "Отцы и дети": "turgenev",
+}
+ALICE_PICTURES = (
+    ("alice_caterpillar", "The Caterpillar on the mushroom (chapter V)"),
+    ("alice_cheshire", "The Cheshire Cat (chapter VI)"),
+    ("alice_teaparty", "A Mad Tea-Party (chapter VII)"),
+)
+
+
+def _copy_picture(key: str) -> Optional[str]:
+    """Скопировать картинку из app/demo/img в загрузки под случайным именем."""
+    sources = _demo_json(os.path.join("img", "SOURCES.json"))
+    info = sources.get(key)
+    if not info:
+        return None
+    src = os.path.join(DEMO_DIR, "img", info["file"])
+    if not os.path.exists(src):
+        return None
+    folder = os.path.join(os.path.dirname(DB_PATH), "uploads", "images")
+    os.makedirs(folder, exist_ok=True)
+    ext = os.path.splitext(info["file"])[1].lower().replace(".jpeg", ".jpg")
+    name = secrets.token_hex(16) + ext
+    shutil.copyfile(src, os.path.join(folder, name))
+    return name
+
+
+def _add_pictures(db, ids: dict) -> None:
+    for title, key in COVER_IMAGES.items():
+        name = _copy_picture(key)
+        if name and title in ids:
+            service.set_book_cover(db, ids[title], name)
+
+    alice = ids.get("Alice's Adventures in Wonderland")
+    if not alice:
+        return
+    credit = "Illustration by John Tenniel, 1865 (public domain)"
+    content = service.get_book(db, alice)["content"]
+    body = content.partition("\n\n" + PD_NOTE_EN)[0]
+    blocks = body.split("\n\n")
+    rabbit = _copy_picture("alice_rabbit")
+    if rabbit:
+        service.add_book_image(db, alice, rabbit)
+        at = next((i for i, b in enumerate(blocks) if "Rabbit" in b), 0)
+        blocks.insert(at + 1, f"![The White Rabbit. {credit}](img:{rabbit})")
+    gallery = []
+    for key, caption in ALICE_PICTURES:
+        name = _copy_picture(key)
+        if name:
+            service.add_book_image(db, alice, name)
+            gallery.append(f"![{caption}. {credit}](img:{name})")
+    if gallery:
+        blocks += ["## Pictures from the next chapters"] + gallery
+    text = "\n\n".join(blocks) + "\n\n" + PD_NOTE_EN
+    db.execute("UPDATE books SET content = ? WHERE id = ?", (text, alice))
+    db.commit()
+
+
+def _add_comments(db, people: dict, ids: dict) -> None:
+    """Отзывы на каждой книге: хорошие, средние и плохие, разными людьми.
+
+    Едіге (спамер) успевает оставить спам и пару грубых слов до бана —
+    цензура заменяет мат звёздочками, это удобно показать на защите.
+    Даты комментариев разнесены по последним трём неделям.
+    """
+    pools = _demo_json("comments.json")
+    special = pools["special"]
+    regular = ["daniyar", "vladimir_p", "murathan", "seyilkhan", "altynbek",
+               "khadizat"]
+    native = {"daniyar": "ru", "vladimir_p": "ru", "altynbek": "ru",
+              "murathan": "kk", "khadizat": "kk"}
+    mat = [line for line in pools["edige_spam"]
+           if service.censor_profanity(line) != line]
+    spam = [line for line in pools["edige_spam"] if line not in mat]
+    now = service._now()
+
+    for book_id in ids.values():
+        book = service.get_book(db, book_id)
+        title = book["title"]
+        rng = random.Random("comments:" + title)
+        entries: list[tuple[str, str, str]] = []
+        if title in special:
+            entries = [tuple(e) for e in special[title]]
+        else:
+            group = ("harry" if "Гарри Поттер" in title else
+                     "rezero" if title.startswith("Re:Zero") else "")
+            if group:
+                entries = [tuple(e) for e in rng.sample(special[group], 2)]
+            chosen = rng.sample(regular, rng.randint(2, 3) - bool(group))
+            moods = ["good", "mid", "bad"]
+            rng.shuffle(moods)
+            for i, who in enumerate(chosen):
+                mood = "good" if who == "altynbek" else (
+                    moods[i] if i < 3 else rng.choice(["good", "mid"]))
+                lang = native.get(who) or rng.choice(["ru", "kk"])
+                if book["language"] == "en" and rng.random() < .5:
+                    lang = "en"
+                pool = pools[lang].get(mood) or pools["ru"][mood]
+                used = {e[2] for e in entries}
+                text = rng.choice([p for p in pool if p not in used] or pool)
+                entries.append((who, mood, text))
+        if rng.random() < .55:
+            line = rng.choice(mat) if rng.random() < .7 else rng.choice(spam)
+            entries.append(("edige", "spam", line))
+        rng.shuffle(entries)
+
+        for index, (who, mood, text) in enumerate(entries):
+            user = people[who]
+            cid = service.add_comment(db, user, book_id, text)
+            when = now - timedelta(days=rng.uniform(.2, 21),
+                                   minutes=index * 7)
+            db.execute("UPDATE comments SET created_at = ? WHERE id = ?",
+                       (when.strftime(service.DATETIME_FMT), cid))
+            if mood == "spam":
+                continue
+            value = {"good": 5 if who == "altynbek" else rng.choice((4, 5)),
+                     "mid": 3, "bad": rng.choice((1, 2))}[mood]
+            service.rate_book(db, user, book_id, value)
+            service.set_shelf_status(db, user["id"], book_id,
+                                     "dropped" if mood == "bad" else "read")
+        db.commit()
+
+
+def _add_game_records(db, players: dict) -> None:
+    """Рекорды мини-игры «Парақ» (главный разработчик — не первый)."""
+    records = {"temirlan": (184000, 9100, {"bookmark": 12, "student": 15,
+                                           "lamp": 10, "shelf": 6, "hall": 3,
+                                           "edige": 1, "altynbek": 1,
+                                           "temirlan": 1}),
+               "daniyar": (52400, 4300, {"bookmark": 8, "student": 10,
+                                         "lamp": 6, "shelf": 3,
+                                         "edige": 1}),
+               "muhan": (31700, 2950, {"bookmark": 6, "student": 8,
+                                       "lamp": 5, "shelf": 2}),
+               "altynbek": (12900, 2200, {"bookmark": 5, "student": 6,
+                                          "lamp": 3, "altynbek": 1}),
+               "murathan": (4100, 1500, {"bookmark": 4, "student": 4,
+                                         "lamp": 1}),
+               "vladimir_p": (880, 640, {"bookmark": 2, "student": 2}),
+               "seyilkhan": (240, 240, {"bookmark": 1})}
+    stamp = service._now_str()
+    for key, (total, clicks, owned) in records.items():
+        spent = service.game_spent(owned)
+        db.execute(
+            "INSERT INTO game_saves(user_id, pages, pages_total, clicks, "
+            "upgrades, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (players[key]["id"], max(0.0, total - spent), float(total),
+             clicks, json.dumps(owned, sort_keys=True), stamp))
+    db.commit()
 
 
 def _demo_student_card() -> str:

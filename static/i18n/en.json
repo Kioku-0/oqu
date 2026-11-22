@@ -537,5 +537,8 @@
   "srv:Слишком много кликов за это время": "Too many taps for this time",
   "srv:На такие улучшения не хватило бы страниц": "There would not be enough pages for these upgrades",
   "srv:Прогресс не может уменьшаться — для начала заново сбросьте игру": "Progress cannot decrease — reset the game to start over",
-  "srv:Не больше 60 иллюстраций в одной книге": "No more than 60 illustrations per book"
+  "srv:Не больше 60 иллюстраций в одной книге": "No more than 60 illustrations per book",
+  "genre.ранобэ": "Light novel",
+  "genre.фэнтези": "Fantasy",
+  "genre.саморазвитие": "Self-improvement"
 }

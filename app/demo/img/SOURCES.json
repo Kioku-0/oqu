@@ -1,0 +1,114 @@
+{
+ "alice_rabbit": {
+  "file": "alice_rabbit.jpg",
+  "title": "File:The White Rabbit (Tenniel) - The Nursery Alice (1890) - BL.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:The_White_Rabbit_(Tenniel)_-_The_Nursery_Alice_(1890)_-_BL.jpg",
+  "author": "John Tenniel",
+  "date": "1890date QS:P571,+1890-00-00T00:00:00Z/9",
+  "license": "CC0"
+ },
+ "alice_caterpillar": {
+  "file": "alice_caterpillar.jpg",
+  "title": "File:Alice 05a-1116x1492.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Alice_05a-1116x1492.jpg",
+  "author": "Sir John Tenniel",
+  "date": "1865",
+  "license": "Public domain"
+ },
+ "alice_cheshire": {
+  "file": "alice_cheshire.png",
+  "title": "File:Cheshire Cat Tenniel.png",
+  "page": "https://commons.wikimedia.org/wiki/File:Cheshire_Cat_Tenniel.png",
+  "author": "John Tenniel",
+  "date": "1866",
+  "license": "Public domain"
+ },
+ "alice_teaparty": {
+  "file": "alice_teaparty.png",
+  "title": "File:Alice par John Tenniel 25.png",
+  "page": "https://commons.wikimedia.org/wiki/File:Alice_par_John_Tenniel_25.png",
+  "author": "John Tenniel",
+  "date": "1865",
+  "license": "Public domain"
+ },
+ "tolstoy": {
+  "file": "tolstoy.jpg",
+  "title": "File:Ivan Nikolayevich Kramskoi - Portrait of Leo Tolstoy, 1873.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Ivan_Nikolayevich_Kramskoi_-_Portrait_of_Leo_Tolstoy,_1873.jpg",
+  "author": "Ivan Kramskoi",
+  "date": "1873date QS:P571,+1873-00-00T00:00:00Z/9",
+  "license": "Public domain"
+ },
+ "pushkin": {
+  "file": "pushkin.jpg",
+  "title": "File:Portrait of Alexander Pushkin (Orest Kiprensky, 1827).PNG",
+  "page": "https://commons.wikimedia.org/wiki/File:Portrait_of_Alexander_Pushkin_(Orest_Kiprensky,_1827).PNG",
+  "author": "Orest Kiprensky",
+  "date": "1827date QS:P571,+1827-00-00T00:00:00Z/9",
+  "license": "Public domain"
+ },
+ "dostoevsky": {
+  "file": "dostoevsky.jpg",
+  "title": "File:Vasily Perov - Портрет Ф.М.Достоевского - Google Art Project.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Vasily_Perov_-_%D0%9F%D0%BE%D1%80%D1%82%D1%80%D0%B5%D1%82_%D0%A4.%D0%9C.%D0%94%D0%BE%D1%81%D1%82%D0%BE%D0%B5%D0%B2%D1%81%D0%BA%D0%BE%D0%B3%D0%BE_-_Google_Art_Project.jpg",
+  "author": "Vasily Perov",
+  "date": "1872",
+  "license": "Public domain"
+ },
+ "gogol": {
+  "file": "gogol.jpg",
+  "title": "File:N.Gogol by F.Moller (1840, Tretyakov gallery).jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:N.Gogol_by_F.Moller_(1840,_Tretyakov_gallery).jpg",
+  "author": "Otto Friedrich Theodor von Möller",
+  "date": "early 1840sdate QS:P571,+1840-00-00T00:00:00Z/8",
+  "license": "Public domain"
+ },
+ "lermontov": {
+  "file": "lermontov.jpg",
+  "title": "File:Michail Jur'evič Lermontov nel 1841.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Michail_Jur%27evi%C4%8D_Lermontov_nel_1841.jpg",
+  "author": "Kirill Gorbunov",
+  "date": "1841-05",
+  "license": "Public domain"
+ },
+ "chekhov": {
+  "file": "chekhov.jpg",
+  "title": "File:Anton Pavlovich Chekhov.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Anton_Pavlovich_Chekhov.jpg",
+  "author": "Unknown authorUnknown author",
+  "date": "between 1860 and 1904date QS:P,+1500-00-00T00:00:00Z/6,P1319",
+  "license": "Public domain"
+ },
+ "austen": {
+  "file": "austen.jpg",
+  "title": "File:Jane Austen, from A Memoir of Jane Austen (1870).jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Jane_Austen,_from_A_Memoir_of_Jane_Austen_(1870).jpg",
+  "author": "From a watercolour by James Andrews of Maidenhead based on an unfinished work by Cassandra Austen. Engraving by William Home Lizars.",
+  "date": "1870",
+  "license": "Public domain"
+ },
+ "shakespeare": {
+  "file": "shakespeare.jpg",
+  "title": "File:Shakespeare.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Shakespeare.jpg",
+  "author": "Attributed to John Taylor",
+  "date": "1648",
+  "license": "Public domain"
+ },
+ "turgenev": {
+  "file": "turgenev.jpg",
+  "title": "File:Turgenev Perov scanned.JPG",
+  "page": "https://commons.wikimedia.org/wiki/File:Turgenev_Perov_scanned.JPG",
+  "author": "Vasily Perov (1834-1882)",
+  "date": "1872",
+  "license": "Public domain"
+ },
+ "abai": {
+  "file": "abai.jpg",
+  "title": "File:Abai Kunanbaev.jpg",
+  "page": "https://commons.wikimedia.org/wiki/File:Abai_Kunanbaev.jpg",
+  "author": "",
+  "date": "около 1896",
+  "license": "Public domain"
+ }
+}
