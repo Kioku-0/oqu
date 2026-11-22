@@ -430,6 +430,33 @@ p { margin: 0 0 1em; }
 .strip { display: grid; grid-auto-flow: column; grid-auto-columns: 150px; gap: 20px; overflow-x: auto;
          padding: 6px 2px 14px; scroll-snap-type: x mandatory; scrollbar-width: thin; }
 .strip > * { scroll-snap-align: start; }
+
+/* --- Лента книг «на полке» (фирменный шкаф на главной) -------------------
+   Задняя стенка и доска нарисованы фоном ленты с background-attachment:
+   local — поэтому они едут вместе с книгами при прокрутке вбок, а боковые
+   стойки (у рамки .shelf-frame) стоят на месте, как у настоящего шкафа. */
+.shelf-frame { --cover-h: 225px; --top: 20px; --plank: 16px; position: relative; }
+.shelf-frame::before, .shelf-frame::after {
+    content: ""; position: absolute; top: 0; z-index: 2; width: 12px; height: calc(var(--top) + var(--cover-h) + var(--plank) + 6px);
+    background: linear-gradient(90deg, #5c3a21, #8a5a35 50%, #5c3a21); box-shadow: 0 4px 8px rgba(0,0,0,.25); pointer-events: none;
+}
+.shelf-frame::before { left: 0; border-radius: 4px 0 0 3px; }
+.shelf-frame::after { right: 0; border-radius: 0 4px 3px 0; }
+.shelf-strip {
+    grid-auto-columns: max-content; gap: 22px; padding: var(--top) 30px 14px; scroll-padding-left: 30px;
+    background:
+        linear-gradient(180deg, #b07b4d, #8a5a35 45%, #5c3a21) 0 calc(var(--top) + var(--cover-h)) / 100% var(--plank) no-repeat local,
+        linear-gradient(180deg, rgba(0,0,0,.28), transparent) 0 calc(var(--top) + var(--cover-h) + var(--plank)) / 100% 10px no-repeat local,
+        linear-gradient(180deg, rgba(0,0,0,.45), transparent 22%) 0 0 / 100% calc(var(--top) + var(--cover-h)) no-repeat local,
+        linear-gradient(180deg, #4a2f1b, #3a2414) 0 0 / 100% calc(var(--top) + var(--cover-h)) no-repeat local;
+    border-radius: 6px 6px 0 0;
+}
+.shelf-strip .book-tile { width: 150px; }
+/* Обложка стоит на доске, подпись — уже под доской, на «бумаге». */
+.shelf-strip .book-tile .cover { margin-bottom: calc(var(--plank) + 6px); box-shadow: 0 2px 3px rgba(0,0,0,.35), 4px 0 10px rgba(0,0,0,.35); }
+.shelf-strip .book-tile:hover .cover { transform: translateY(-8px); box-shadow: 0 14px 18px rgba(0,0,0,.45); }
+.strip-decor { height: var(--cover-h); display: flex; align-items: flex-end; justify-content: center; padding: 0 2px; pointer-events: none; }
+.strip-decor .decor, .strip-decor .stack { filter: drop-shadow(0 3px 3px rgba(0,0,0,.45)); }
 .progress { height: 4px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
 .progress > i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
 
@@ -492,14 +519,29 @@ table.data tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 50%,
 .kicker { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 14px; font-size: 12px; font-weight: 600;
     letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .kicker::before { content: ""; width: 28px; height: 1px; background: currentColor; }
-.hero-stack { position: relative; height: 270px; }
-.hero-stack > a { position: absolute; width: 150px; transition: transform .4s ease; }
-.hero-stack > a:nth-child(1) { left: 6%; top: 30px; transform: rotate(-8deg); }
-.hero-stack > a:nth-child(2) { left: 32%; top: 0; z-index: 2; transform: rotate(2deg); }
-.hero-stack > a:nth-child(3) { left: 58%; top: 34px; transform: rotate(9deg); }
-.hero-stack:hover > a:nth-child(1) { transform: rotate(-12deg) translateX(-10px); }
-.hero-stack:hover > a:nth-child(2) { transform: rotate(2deg) translateY(-8px); }
-.hero-stack:hover > a:nth-child(3) { transform: rotate(13deg) translateX(10px); }
+/* Три новинки на полочке: книги стоят на доске (поворот вокруг нижнего
+   края), по краям — книгодержатель и растение. */
+.hero-stack { position: relative; height: 290px; }
+.hero-stack > a { position: absolute; bottom: 18px; width: 150px; transition: transform .4s ease; transform-origin: 50% 100%; z-index: 1; }
+.hero-stack > a:nth-child(1) { left: 12%; transform: rotate(-7deg); }
+.hero-stack > a:nth-child(2) { left: 36%; z-index: 2; transform: rotate(1.5deg); }
+.hero-stack > a:nth-child(3) { left: 60%; transform: rotate(8deg); }
+.hero-stack:hover > a:nth-child(1) { transform: rotate(-11deg) translateX(-8px); }
+.hero-stack:hover > a:nth-child(2) { transform: rotate(1.5deg) translateY(-10px); }
+.hero-stack:hover > a:nth-child(3) { transform: rotate(12deg) translateX(8px); }
+.hero-plank { position: absolute; left: 0; right: 0; bottom: 0; height: 18px; z-index: 3; border-radius: 3px;
+    background: linear-gradient(180deg, #b07b4d, #8a5a35 45%, #5c3a21); box-shadow: 0 8px 14px rgba(40, 25, 10, .3); }
+.hero-plank::before, .hero-plank::after { content: ""; position: absolute; top: 100%; width: 14px; height: 22px;
+    background: linear-gradient(180deg, #5c3a21, #3b2615); clip-path: polygon(0 0, 100% 0, 100% 30%, 30% 100%, 0 100%); }
+.hero-plank::before { left: 10%; } .hero-plank::after { right: 10%; transform: scaleX(-1); }
+.hero-decor { position: absolute; bottom: 18px; z-index: 2; }
+.hero-decor.l { left: 4%; } .hero-decor.r { right: 2%; }
+.hero-decor .decor { filter: drop-shadow(0 3px 3px rgba(0,0,0,.3)); }
+/* Обложка на странице книги стоит на кусочке полки. */
+.cover-stand { position: relative; }
+.cover-stand .cover { width: 100%; }
+.mini-plank { display: block; height: 14px; margin: 0 -12px; border-radius: 3px; position: relative;
+    background: linear-gradient(180deg, #b07b4d, #8a5a35 45%, #5c3a21); box-shadow: 0 6px 12px rgba(40, 25, 10, .3); }
 /* Цифры — строкой между двумя линейками (как шапка газеты), без карточек. */
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line); }
@@ -865,6 +907,11 @@ body.reading .topbar { position: static; }
     .stat b { font-size: 28px; }
     .hero h1 { font-size: 32px; }
     .strip { grid-auto-columns: 112px; gap: 12px; }
+    .shelf-frame { --cover-h: 168px; --top: 14px; --plank: 13px; }
+    .shelf-frame::before, .shelf-frame::after { width: 8px; }
+    .shelf-strip { grid-auto-columns: max-content; gap: 14px; padding: var(--top) 20px 12px; }
+    .shelf-strip .book-tile { width: 112px; }
+    .strip-decor svg { max-height: 70px; width: auto; }
     .book-page { grid-template-columns: 1fr; }
     .book-aside { position: static; display: grid; grid-template-columns: 130px 1fr; align-items: end; }
     .book-row { grid-template-columns: 56px 1fr; }

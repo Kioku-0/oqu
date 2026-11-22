@@ -56,16 +56,36 @@ route(/^\/$/, async (view) => {
       <div id="home-continue"></div>
       <section class="section"><div class="stat-row" id="home-stats">${'<div class="stat skeleton" style="height:84px"></div>'.repeat(4)}</div></section>
       <section class="section"><div class="section-head"><h2>${esc(t("home.genres"))}</h2></div><div class="chips" id="home-genres"></div></section>
-      <section class="section"><div class="section-head"><h2>${esc(t("home.new"))}</h2><a href="#/catalog?sort=-created_at">${esc(t("common.all"))} →</a></div><div class="strip" id="home-new"></div></section>
-      <section class="section"><div class="section-head"><h2>${esc(t("home.popular"))}</h2><a href="#/catalog?sort=-popular">${esc(t("common.all"))} →</a></div><div class="strip" id="home-pop"></div></section>
-      <section class="section"><div class="section-head"><h2>${esc(t("home.rated"))}</h2><a href="#/catalog?sort=-rating">${esc(t("common.all"))} →</a></div><div class="strip" id="home-rated"></div></section>`;
+      <section class="section"><div class="section-head"><h2>${esc(t("home.new"))}</h2><a href="#/catalog?sort=-created_at">${esc(t("common.all"))} →</a></div><div class="shelf-frame"><div class="strip shelf-strip" id="home-new"></div></div></section>
+      <section class="section"><div class="section-head"><h2>${esc(t("home.popular"))}</h2><a href="#/catalog?sort=-popular">${esc(t("common.all"))} →</a></div><div class="shelf-frame"><div class="strip shelf-strip" id="home-pop"></div></div></section>
+      <section class="section"><div class="section-head"><h2>${esc(t("home.rated"))}</h2><a href="#/catalog?sort=-rating">${esc(t("common.all"))} →</a></div><div class="shelf-frame"><div class="strip shelf-strip" id="home-rated"></div></div></section>`;
 
-    const strip = (sel, items) => { $(sel).innerHTML = items.length ? items.map((b) => tile(b)).join("") : `<p class="muted">${esc(t("catalog.empty"))}</p>`; };
+    // Ленты книг стоят на деревянной полке (как в нашем «шкафу» — маскоте
+    // сайта), между книгами — предметы декора: подставка, растение, глобус…
+    const SHELF_DECOR = ["plant", "globe", "stack", "candle", "hourglass", "vase", "clock", "frame"];
+    const strip = (sel, items) => {
+        if (!items.length) { $(sel).innerHTML = `<p class="muted">${esc(t("catalog.empty"))}</p>`; return; }
+        const seed = hash(sel);
+        const parts = [];
+        items.forEach((b, i) => {
+            parts.push(tile(b));
+            if (i % 4 === 3 && i < items.length - 1) {
+                const name = SHELF_DECOR[(seed + i) % SHELF_DECOR.length];
+                const d = name === "stack" ? stackHtml(1) : decorHtml(name, 1.15);
+                parts.push(`<span class="strip-decor" aria-hidden="true">${d.html}</span>`);
+            }
+        });
+        $(sel).innerHTML = parts.join("");
+    };
     const jobs = [
         api("/api/books?sort=created_at&order=desc&page_size=12").then((d) => {
             strip("#home-new", d.items);
+            // Три новинки стоят на маленькой полочке с глобусом и растением.
             $("#hero-stack").innerHTML = d.items.slice(0, 3).map((b) =>
-                `<a href="#/book/${b.id}" aria-label="${esc(b.title)}">${cover(b)}</a>`).join("");
+                `<a href="#/book/${b.id}" aria-label="${esc(b.title)}">${cover(b)}</a>`).join("")
+                + `<span class="hero-decor l" aria-hidden="true">${decorHtml("globe", 1.15).html}</span>`
+                + `<span class="hero-decor r" aria-hidden="true">${decorHtml("plant", 1.25).html}</span>`
+                + `<span class="hero-plank" aria-hidden="true"></span>`;
         }),
         api("/api/books?sort=popular&order=desc&page_size=12").then((d) => strip("#home-pop", d.items)),
         api("/api/books?sort=rating&order=desc&page_size=12").then((d) => strip("#home-rated", d.items)),
@@ -566,7 +586,7 @@ route(/^\/book\/(\d+)$/, async (view, [id]) => {
         if (b.has_file) readBtns.push(`<a class="btn ${b.has_text ? "" : "primary"} lg block" href="#/read/${b.id}?mode=pdf">${icon("pdf")}${esc(t("book.read_scan"))}</a>`);
     }
     view.innerHTML = `<div class="book-page">
-      <aside class="book-aside">${cover(b)}
+      <aside class="book-aside"><div class="cover-stand">${cover(b)}<span class="mini-plank" aria-hidden="true"></span></div>
         <div style="display:flex;flex-direction:column;gap:10px">${readBtns.join("")}
           ${b.external_url ? `<a class="btn block" href="${esc(b.external_url)}" target="_blank" rel="noopener noreferrer">${icon("link")}${esc(t("book.external"))}</a>` : ""}
         </div>

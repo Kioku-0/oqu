@@ -696,8 +696,12 @@ function setTitle(text) { document.title = text ? `${text} — Оқу` : `Оқу
 /* ---------- Общие куски разметки ---------------------------------------- */
 function emptyState(ic, title, text = "", actions = "") {
     return `<div class="empty">
-        <svg class="ill" viewBox="0 0 120 90" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
-          <path d="M60 20c-10-7-26-9-42-6v58c16-3 32-1 42 6 10-7 26-9 42-6V14c-16-3-32-1-42 6zM60 20v58"/>
+        <svg class="ill" viewBox="0 0 120 90" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <!-- Полупустой шкаф (маскот сайта): пара книг, одна упала, внизу растение -->
+          <rect x="14" y="6" width="92" height="78" rx="3"/><path d="M14 36h92M14 62h92M10 84h100"/>
+          <rect x="24" y="14" width="8" height="22" rx="1"/><rect x="34" y="18" width="7" height="18" rx="1"/>
+          <path d="M44 36l9-19 6 3-9 19"/><path d="M70 62h22v-5H70z"/>
+          <path d="M28 62l2-8h10l2 8M35 54c0-6-5-9-9-10 1 5 4 8 9 10zM35 54c0-7 4-11 9-12-1 6-4 10-9 12z"/>
         </svg>
         <h3>${esc(title)}</h3>${text ? `<p>${esc(text)}</p>` : ""}${actions ? `<div class="btn-row" style="justify-content:center">${actions}</div>` : ""}</div>`;
 }
