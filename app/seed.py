@@ -587,14 +587,14 @@ def _add_game_records(db, players: dict) -> None:
                                          "lamp": 1}),
                "vladimir_p": (880, 640, {"bookmark": 2, "student": 2}),
                "seyilkhan": (240, 240, {"bookmark": 1})}
+    # В таблице рекордов остаются результаты, но улучшения у всех с нуля:
+    # кто войдёт под демо-аккаунтом, начнёт игру заново (рекорд сохранится).
     stamp = service._now_str()
-    for key, (total, clicks, owned) in records.items():
-        spent = service.game_spent(owned)
+    for key, (total, clicks, _owned) in records.items():
         db.execute(
             "INSERT INTO game_saves(user_id, pages, pages_total, clicks, "
-            "upgrades, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (players[key]["id"], max(0.0, total - spent), float(total),
-             clicks, json.dumps(owned, sort_keys=True), stamp))
+            "upgrades, updated_at) VALUES (?, 0, ?, ?, '{}', ?)",
+            (players[key]["id"], float(total), clicks, stamp))
     db.commit()
 
 

@@ -21,6 +21,13 @@ const GAME_SPINE = {
     library: "#6b3fa0", bookmark: "#9b3b54",
 };
 const SAVE_EVERY_MS = 20000;
+// Номер текущего запуска игры. Если страницу открыли заново (или сменили
+// язык) пока старая ещё загружалась, старый цикл видит чужой номер и сам
+// останавливается — иначе два цикла перерисовывали бы одни строки и
+// интерфейс мигал.
+let gameGen = 0;
+/** Записать текст, только если он изменился (меньше лишних перерисовок). */
+const setText = (el, text) => { if (el && el.textContent !== text) el.textContent = text; };
 
 /** Короткая запись больших чисел: 1 234 → 1,2 тыс. */
 function fmtBig(n) {
@@ -33,7 +40,9 @@ const fmtRate = (n) => (n < 10 ? n.toFixed(1).replace(".", Oqu.state.lang === "e
 
 Oqu.router.add(/^\/game$/, async (view) => {
     setTitle(t("game.title"));
+    const gen = ++gameGen;
     const cfg = await api("/api/game/config");
+    if (gen !== gameGen) return;
     const U = cfg.upgrades;
     const user = Oqu.state.user;
     const localKey = "game." + (user ? user.id : "guest");
@@ -45,6 +54,7 @@ Oqu.router.add(/^\/game$/, async (view) => {
     } else {
         st = store.get(localKey, st);
     }
+    if (gen !== gameGen) return;   // пока грузились, страницу уже открыли заново
     st.upgrades = { ...(st.upgrades || {}) };
     let dirty = false, lastSync = 0, syncing = false, lastSaveError = "";
 
@@ -126,19 +136,21 @@ Oqu.router.add(/^\/game$/, async (view) => {
             || `<span class="g-empty">${esc(t("game.empty_case"))}</span>`;
         $("#g-row2").innerHTML = spines.slice(half).map(sp).join("") + extras.slice(2).join("");
     };
+    const root = $(".game", view);
     const render = () => {
-        $("#g-pages").textContent = fmtBig(st.pages);
-        $("#g-rate").textContent = t("game.per_sec", { n: fmtRate(rate()) });
-        $("#g-click").textContent = t("game.per_click", { n: fmtBig(clickPower()) });
-        $("#g-total").textContent = t("game.total", { n: fmtBig(st.pages_total) });
-        $("#g-clicks").textContent = t("game.clicks", { n: fmtNum(st.clicks) });
+        setText($("#g-pages", root), fmtBig(st.pages));
+        setText($("#g-rate", root), t("game.per_sec", { n: fmtRate(rate()) }));
+        setText($("#g-click", root), t("game.per_click", { n: fmtBig(clickPower()) }));
+        setText($("#g-total", root), t("game.total", { n: fmtBig(st.pages_total) }));
+        setText($("#g-clicks", root), t("game.clicks", { n: fmtNum(st.clicks) }));
         for (const k of kinds) {
-            const btn = $(`[data-up="${k}"]`);
-            const done = U[k].once && owned(k) >= 1;
-            btn.disabled = done || st.pages < cost(k);
-            btn.classList.toggle("done", done);
-            $(`[data-cost="${k}"]`).textContent = done ? "✓" : fmtBig(Math.ceil(cost(k)));
-            $(`[data-owned="${k}"]`).textContent = U[k].once ? "" : String(owned(k));
+            const btn = $(`[data-up="${k}"]`, root);
+            const done = !!U[k].once && owned(k) >= 1;
+            const disabled = done || st.pages < cost(k);
+            if (btn.disabled !== disabled) btn.disabled = disabled;
+            if (btn.classList.contains("done") !== done) btn.classList.toggle("done", done);
+            setText($(`[data-cost="${k}"]`, root), done ? "✓" : fmtBig(Math.ceil(cost(k))));
+            setText($(`[data-owned="${k}"]`, root), U[k].once ? "" : String(owned(k)));
         }
         renderCase();
     };
@@ -164,6 +176,8 @@ Oqu.router.add(/^\/game$/, async (view) => {
     // ---- Игровой цикл: страницы от улучшений каждые 100 мс ----
     let last = performance.now(), uiTick = 0;
     const timer = setInterval(() => {
+        // Устаревший запуск (страницу открыли заново) — тихо останавливаемся.
+        if (gen !== gameGen || !root.isConnected) { clearInterval(timer); return; }
         const now = performance.now();
         const dt = Math.min(5, (now - last) / 1000);   // после сна вкладки — не больше 5 с
         last = now;
@@ -218,7 +232,10 @@ Oqu.router.add(/^\/game$/, async (view) => {
     }).catch(() => { $("#g-top").innerHTML = ""; });
 
     // При уходе со страницы и закрытии вкладки — сохранить.
-    const onHide = () => { if (document.visibilityState === "hidden") { saveLocal(); sync(); } };
+    const onHide = () => {
+        if (gen !== gameGen) { document.removeEventListener("visibilitychange", onHide); return; }
+        if (document.visibilityState === "hidden") { saveLocal(); sync(); }
+    };
     document.addEventListener("visibilitychange", onHide);
     Oqu.leave = () => { clearInterval(timer); document.removeEventListener("visibilitychange", onHide); saveLocal(); sync(); };
     render();
@@ -229,7 +246,8 @@ function gameTopHtml(top) {
     return top.map((e) => `<div class="leader${e.place === 1 ? " first" : ""}">
         <div class="place">${e.place}</div>
         ${Oqu.avatar(e.display_name || e.username)}
-        <div><b>${esc(e.display_name || e.username)}</b><div class="small muted">${esc(t("game.per_sec", { n: fmtRate(e.rate) }))}</div></div>
+        <div><b>${esc(e.display_name || e.username)}</b><div class="small muted">${esc(e.rate > 0
+            ? t("game.per_sec", { n: fmtRate(e.rate) }) : t("game.clicks", { n: fmtNum(e.clicks) }))}</div></div>
         <div class="count">${fmtBig(e.pages_total)}</div></div>`).join("");
 }
 Oqu.gameTopHtml = gameTopHtml;
