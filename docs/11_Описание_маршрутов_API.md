@@ -58,34 +58,42 @@
 | 21 | Книги | `GET` | `/api/books/{book_id}/file` | PDF-скан книги (с учётом прав доступа) | Как у чтения текста |
 | 22 | Книги | `POST` | `/api/books/{book_id}/file` | Загрузить PDF-скан книги (до 40 МБ) | Как у изменения книги |
 | 23 | Книги | `DELETE` | `/api/books/{book_id}/file` | Удалить PDF-скан книги | Как у изменения книги |
-| 24 | Книги | `POST` | `/api/books/{book_id}/buy` | Купить платную книгу (учебная имитация) | book.buy: вошедший читатель |
-| 25 | Книги | `PUT` | `/api/books/{book_id}/rating` | Оценить книгу от 1 до 5 | rating.set: вошедший |
-| 26 | Комментарии | `GET` | `/api/books/{book_id}/comments` | Комментарии книги (постранично) | Все |
-| 27 | Комментарии | `POST` | `/api/books/{book_id}/comments` | Оставить комментарий | comment.write: вошедший |
-| 28 | Комментарии | `PATCH` | `/api/comments/{comment_id}` | Изменить свой комментарий | Автор комментария |
-| 29 | Комментарии | `DELETE` | `/api/comments/{comment_id}` | Удалить комментарий | Свой; любой — модератор, редактор |
-| 30 | Полка | `GET` | `/api/me/shelf` | Книги на полке | Вошедший |
-| 31 | Полка | `PUT` | `/api/me/shelf/{book_id}` | Статус книги на полке (null — убрать) | shelf.manage: вошедший |
-| 32 | Полка | `PUT` | `/api/me/progress/{book_id}` | Сохранить место чтения | progress.save: вошедший |
-| 33 | Полка | `GET` | `/api/me/bookmarks` | Мои закладки | Вошедший |
-| 34 | Полка | `POST` | `/api/me/bookmarks/{book_id}` | Добавить закладку | progress.save: вошедший |
-| 35 | Полка | `DELETE` | `/api/me/bookmarks/{bookmark_id}` | Удалить закладку | Владелец закладки |
-| 36 | Статистика | `GET` | `/api/stats` | Статистика прочитанного по всем пользователям | Все |
-| 37 | Модерация | `GET` | `/api/admin/users` | Пользователи (поиск, пагинация) | user.list: модератор |
-| 38 | Модерация | `POST` | `/api/admin/users/{user_id}/role` | Назначить роль (только владелец) | Только главный разработчик |
-| 39 | Модерация | `POST` | `/api/admin/users/{user_id}/ban` | Забанить (причина и срок) | user.ban: модератор (не персонал) |
-| 40 | Модерация | `POST` | `/api/admin/users/{user_id}/unban` | Разбанить | user.ban: модератор |
-| 41 | Модерация | `POST` | `/api/admin/users/{user_id}/verify-student` | Подтвердить статус студента вручную | user.verify_student: модератор |
-| 42 | Модерация | `DELETE` | `/api/admin/users/{user_id}` | Удалить аккаунт (только владелец) | Только главный разработчик |
-| 43 | Модерация | `GET` | `/api/admin/unban-requests` | Заявки на разбан | unban.manage: модератор |
-| 44 | Модерация | `POST` | `/api/admin/unban-requests/{request_id}/resolve` | Одобрить или отклонить заявку на разбан | unban.manage: модератор |
-| 45 | Модерация | `GET` | `/api/admin/student-requests` | Заявки на статус студента | user.verify_student: модератор |
-| 46 | Модерация | `GET` | `/api/admin/student-requests/{request_id}/image` | Фото студбилета из заявки | user.verify_student: модератор |
-| 47 | Модерация | `POST` | `/api/admin/student-requests/{request_id}/resolve` | Одобрить или отклонить заявку студента | user.verify_student: модератор |
-| 48 | Журнал | `GET` | `/api/admin/log` | Журнал действий с фильтрами | log.read: модератор |
-| 49 | Журнал | `GET` | `/api/admin/log.csv` | Выгрузить журнал в CSV (до 10 000 записей) | log.read: модератор |
-| 50 | Интерфейс | `GET` | `/api/i18n/{lang}` | Словарь переводов | Все |
-| 51 | Интерфейс | `GET` | `/api/health` | Проверка работоспособности (для хостинга) | Все |
+| 24 | Книги | `POST` | `/api/books/{book_id}/cover` | Картинка обложки (JPG/PNG/WebP до 5 МБ) | Как у изменения книги |
+| 25 | Книги | `DELETE` | `/api/books/{book_id}/cover` | Убрать картинку обложки | Как у изменения книги |
+| 26 | Книги | `POST` | `/api/books/{book_id}/images` | Иллюстрация для текста книги (JPG/PNG/WebP до 5 МБ) | Как у изменения книги |
+| 27 | Книги | `POST` | `/api/books/{book_id}/buy` | Купить платную книгу (учебная имитация) | book.buy: вошедший читатель |
+| 28 | Книги | `PUT` | `/api/books/{book_id}/rating` | Оценить книгу от 1 до 5 | rating.set: вошедший |
+| 29 | Комментарии | `GET` | `/api/books/{book_id}/comments` | Комментарии книги (постранично) | Все |
+| 30 | Комментарии | `POST` | `/api/books/{book_id}/comments` | Оставить комментарий | comment.write: вошедший |
+| 31 | Комментарии | `PATCH` | `/api/comments/{comment_id}` | Изменить свой комментарий | Автор комментария |
+| 32 | Комментарии | `DELETE` | `/api/comments/{comment_id}` | Удалить комментарий | Свой; любой — модератор, редактор |
+| 33 | Полка | `GET` | `/api/me/shelf` | Книги на полке | Вошедший |
+| 34 | Полка | `PUT` | `/api/me/shelf/{book_id}` | Статус книги на полке (null — убрать) | shelf.manage: вошедший |
+| 35 | Полка | `PUT` | `/api/me/progress/{book_id}` | Сохранить место чтения | progress.save: вошедший |
+| 36 | Полка | `GET` | `/api/me/bookmarks` | Мои закладки | Вошедший |
+| 37 | Полка | `POST` | `/api/me/bookmarks/{book_id}` | Добавить закладку | progress.save: вошедший |
+| 38 | Полка | `DELETE` | `/api/me/bookmarks/{bookmark_id}` | Удалить закладку | Владелец закладки |
+| 39 | Статистика | `GET` | `/api/stats` | Статистика прочитанного по всем пользователям | Все |
+| 40 | Модерация | `GET` | `/api/admin/users` | Пользователи (поиск, пагинация) | user.list: модератор |
+| 41 | Модерация | `POST` | `/api/admin/users/{user_id}/role` | Назначить роль (только владелец) | Только главный разработчик |
+| 42 | Модерация | `POST` | `/api/admin/users/{user_id}/ban` | Забанить (причина и срок) | user.ban: модератор (не персонал) |
+| 43 | Модерация | `POST` | `/api/admin/users/{user_id}/unban` | Разбанить | user.ban: модератор |
+| 44 | Модерация | `POST` | `/api/admin/users/{user_id}/verify-student` | Подтвердить статус студента вручную | user.verify_student: модератор |
+| 45 | Модерация | `DELETE` | `/api/admin/users/{user_id}` | Удалить аккаунт (только владелец) | Только главный разработчик |
+| 46 | Модерация | `GET` | `/api/admin/unban-requests` | Заявки на разбан | unban.manage: модератор |
+| 47 | Модерация | `POST` | `/api/admin/unban-requests/{request_id}/resolve` | Одобрить или отклонить заявку на разбан | unban.manage: модератор |
+| 48 | Модерация | `GET` | `/api/admin/student-requests` | Заявки на статус студента | user.verify_student: модератор |
+| 49 | Модерация | `GET` | `/api/admin/student-requests/{request_id}/image` | Фото студбилета из заявки | user.verify_student: модератор |
+| 50 | Модерация | `POST` | `/api/admin/student-requests/{request_id}/resolve` | Одобрить или отклонить заявку студента | user.verify_student: модератор |
+| 51 | Журнал | `GET` | `/api/admin/log` | Журнал действий с фильтрами | log.read: модератор |
+| 52 | Журнал | `GET` | `/api/admin/log.csv` | Выгрузить журнал в CSV (до 10 000 записей) | log.read: модератор |
+| 53 | Игра | `GET` | `/api/game/config` | Улучшения и константы мини-игры | Все |
+| 54 | Игра | `GET` | `/api/game/me` | Мой прогресс в игре | Вошедший |
+| 55 | Игра | `PUT` | `/api/game/me` | Сохранить прогресс (с проверкой на накрутку) | Вошедший (проверка на накрутку) |
+| 56 | Игра | `DELETE` | `/api/game/me` | Начать игру заново | Вошедший |
+| 57 | Игра | `GET` | `/api/game/leaderboard` | Рекорды игры (все игроки на равных) | Все |
+| 58 | Интерфейс | `GET` | `/api/i18n/{lang}` | Словарь переводов | Все |
+| 59 | Интерфейс | `GET` | `/api/health` | Проверка работоспособности (для хостинга) | Все |
 
 ## 4. Страницы и служебные адреса
 

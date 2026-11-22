@@ -159,6 +159,9 @@ Oqu.router.add(/^\/game$/, async (view) => {
     const saveLocal = () => store.set(localKey, st);
     const sync = async (force = false) => {
         if (!user || syncing || (!dirty && !force)) return;
+        // Если за это время вышли или вошли под другим именем — не отправляем
+        // чужой прогресс новому пользователю.
+        if (Oqu.state.user?.id !== user.id) return;
         syncing = true;
         try {
             const body = { pages: st.pages, pages_total: st.pages_total, clicks: st.clicks, upgrades: st.upgrades };

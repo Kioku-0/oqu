@@ -1003,6 +1003,8 @@ body.reading .topbar { position: static; }
     .view { padding: 18px 14px 32px; }
     .books-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 18px 12px; }
     .stat-row { grid-template-columns: 1fr 1fr; }
+    .game-teaser { flex-wrap: wrap; gap: 12px 14px; }
+    .game-teaser > .btn { width: 100%; }
     .stat { padding: 12px 0 12px 14px; }
     .stat:nth-child(odd) { border-left: 0; padding-left: 0; }
     .stat:nth-child(n+3) { border-top: 1px solid var(--line); }
