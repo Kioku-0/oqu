@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 
 # Формат хранения дат и времени (UTC). Строки в этом формате сравниваются в том
@@ -240,6 +241,17 @@ def _upper(value):
     return value.upper() if isinstance(value, str) else value
 
 
+def natural_key(value):
+    """Ключ «естественной» сортировки: числа сравниваются как числа.
+
+    Без него «Том 10» стоял бы раньше «Том 2» (сравнение по символам).
+    Каждое число дополняется нулями до 10 знаков: «том 0000000002».
+    """
+    if not isinstance(value, str):
+        return value
+    return re.sub(r"\d+", lambda m: m.group(0).zfill(10), value.lower())
+
+
 def _migrate(db: sqlite3.Connection) -> None:
     """Добавить в существующие таблицы столбцы из новых версий схемы."""
     for table, column, ddl in _ADDED_COLUMNS:
@@ -272,6 +284,7 @@ def connect(path: str = ":memory:") -> sqlite3.Connection:
         db.execute("PRAGMA journal_mode = WAL")
     db.create_function("lower", 1, _lower, deterministic=True)
     db.create_function("upper", 1, _upper, deterministic=True)
+    db.create_function("natural_key", 1, natural_key, deterministic=True)
     db.executescript(SCHEMA)
     _migrate(db)
     return db

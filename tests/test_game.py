@@ -144,6 +144,14 @@ def test_game_config_has_upgrades():
     assert config["cost_growth"] == service.GAME_COST_GROWTH
 
 
+# --- Естественная сортировка названий ---------------------------------------
+def test_titles_sorted_naturally(db):
+    for n in (10, 2, 1):
+        service.add_book(db, "editor", f"Том {n}", "Автор")
+    page = service.search_books(db, sort="title")
+    assert [b["title"] for b in page["items"]] == ["Том 1", "Том 2", "Том 10"]
+
+
 # --- Иллюстрации и обложки --------------------------------------------------
 def _book(db):
     return service.add_book(db, "editor", "Книга", "Автор", content="Текст")

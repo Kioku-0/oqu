@@ -675,7 +675,7 @@ _LIST_COLUMNS = (
 )
 
 _SORT_SQL = {
-    "title": "b.title", "author": "b.author", "year": "b.year",
+    "title": "natural_key(b.title)", "author": "b.author", "year": "b.year",
     "created_at": "b.created_at", "rating": "rating", "popular": "reads",
 }
 
