@@ -114,7 +114,8 @@ def title_page(doc: Document, title: str) -> None:
          space=6)
     line("Проект «Оқу» — электронная библиотека", bold=True, space=6)
     line(title, size=18, bold=True, space=36).runs[0].font.color.rgb = ACCENT
-    line("Выполнили: Мұхан Надирхалиф, Жоробекова Хадизат", space=150, align="right")
+    line("Выполнили: студенты группы Сиб-24-1 п/я", space=150, align="right")
+    line("Мұхан Надирхалиф, Жоробекова Хадизат", align="right")
     line("Проверил: Айтимов Мурат Жолдасбекович", align="right")
     line("Кызылорда, 2026", space=110)
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
