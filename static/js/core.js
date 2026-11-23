@@ -847,6 +847,47 @@ function pager(d, onPage) {
     return html;
 }
 
+/* ---------- Кнопка «показать пароль» ------------------------------------- */
+/* Свой «глазок» у каждого поля пароля. Встроенный глазок Edge прячет пароль
+ * и сам исчезает, стоит уйти с поля или переключить окно (так задумано в
+ * браузере), поэтому он отключён в CSS (::-ms-reveal), а наш остаётся. */
+function addPasswordToggle(input) {
+    if (input.dataset.eye) return;
+    input.dataset.eye = "1";
+    const wrap = document.createElement("span");
+    wrap.className = "pass-wrap";
+    input.replaceWith(wrap);
+    wrap.appendChild(input);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pass-eye";
+    const sync = () => {
+        const shown = input.type === "text";
+        btn.innerHTML = icon(shown ? "eye-off" : "eye");
+        btn.setAttribute("aria-pressed", String(shown));
+        btn.setAttribute("aria-label", t(shown ? "auth.hide_password" : "auth.show_password"));
+        btn.title = btn.getAttribute("aria-label");
+    };
+    btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        input.type = input.type === "password" ? "text" : "password";
+        sync();
+        input.focus();
+    });
+    // После очистки формы (например, пароль успешно сменён) — снова скрыть.
+    input.form?.addEventListener("reset", () => { input.type = "password"; sync(); });
+    sync();
+    wrap.appendChild(btn);
+}
+function watchPasswordFields() {
+    const scan = (root) => root.querySelectorAll?.('input[type="password"]').forEach(addPasswordToggle);
+    scan(document);
+    new MutationObserver((list) => list.forEach((m) => m.addedNodes.forEach((n) => {
+        if (n.nodeType !== 1) return;
+        if (n.matches('input[type="password"]')) addPasswordToggle(n); else scan(n);
+    }))).observe(document.body, { childList: true, subtree: true });
+}
+
 /* ---------- Запуск ------------------------------------------------------- */
 function showStorageNotice() {
     if (store.get("notice")) return;
@@ -860,6 +901,7 @@ function showStorageNotice() {
 async function boot() {
     const prefersDark = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
     setTheme(store.get("theme", prefersDark ? "dark" : "light"));
+    watchPasswordFields();
     const browserLang = (navigator.language || "ru").slice(0, 2);
     const lang = store.get("lang", ["kk", "ky", "en"].includes(browserLang) ? browserLang : "ru");
     await Promise.all([setLang(lang, { save: false }), loadMe()]);
