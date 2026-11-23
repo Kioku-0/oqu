@@ -25,16 +25,18 @@ from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
 from notes import HADIZAT, MUHAN, THANKS
+from slides_kk import KK
 from slides_ky import KY
 
-# Язык текста на слайдах: в кыргызской версии весь текст по-кыргызски,
-# в остальных - по-русски (речь в заметках - на языке версии).
+# Язык текста на слайдах: казахская версия - по-казахски, кыргызская -
+# по-кыргызски, русская - по-русски (речь в заметках - на языке версии).
 LANG = "ru"
+DICTS = {"kk": KK, "ky": KY}
 
 
 def tr(s):
     """Перевести строку слайда на язык текущей версии."""
-    return KY.get(s, s) if LANG == "ky" else s
+    return DICTS.get(LANG, {}).get(s, s)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PRES_DIR = os.path.dirname(HERE)
@@ -703,7 +705,7 @@ ORDER = ["cover", "problem", "task", "backend", "arch", "db", "security",
 
 def build(version, filename):
     global LANG
-    LANG = "ky" if version == "рус-кыр" else "ru"
+    LANG = {"рус-каз": "kk", "рус-кыр": "ky"}.get(version, "ru")
     prs = Presentation()
     prs.slide_width, prs.slide_height = px(1920), px(1080)
     prs.core_properties.title = "Оқу - предзащита курсового проекта"
