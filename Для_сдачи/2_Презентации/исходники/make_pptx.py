@@ -25,6 +25,16 @@ from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
 from notes import HADIZAT, MUHAN, THANKS
+from slides_ky import KY
+
+# Язык текста на слайдах: в кыргызской версии весь текст по-кыргызски,
+# в остальных - по-русски (речь в заметках - на языке версии).
+LANG = "ru"
+
+
+def tr(s):
+    """Перевести строку слайда на язык текущей версии."""
+    return KY.get(s, s) if LANG == "ky" else s
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PRES_DIR = os.path.dirname(HERE)
@@ -132,7 +142,7 @@ def fill_text(tf, paras, size, color, font, bold, align, spacing, gap):
             p.space_before = Pt(size * gap)
         for chunk, opt in (para if isinstance(para, list) else [(para, {})]):
             r = p.add_run()
-            r.text = chunk
+            r.text = tr(chunk)
             f = r.font
             f.name = opt.get("font", font)
             f.size = Pt(opt.get("size", size) / 2)
@@ -289,8 +299,9 @@ def s_cover(prs):
     hand(s, L, 150, 900, 50, "курсовой проект · вариант 11", size=34)
     text(s, L - 8, 190, 900, 260, "Оқу", size=250, color=INK, font=HEAD,
          bold=True)
-    highlight(s, L, 486, 820, 62, "h")
-    text(s, L, 470, 900, 140, "Электронная библиотека с REST API "
+    if LANG == "ru":         # маркер под первой строкой русского текста
+        highlight(s, L, 486, 820, 62, "h")
+    text(s, L, 470, 840, 140, "Электронная библиотека с REST API "
          "и документацией OpenAPI", size=46, color=INK, spacing=1.05)
     text(s, L, 650, 900, 160, [
         [("Мұхан Надирхалиф", {"bold": True}), ("  ·  ", {}),
@@ -345,8 +356,8 @@ def s_problem(prs):
         colors=yn)
     circle_mark(s, L + 1480 * 0.866 - 24, 596, 130, 320, rot=-3,
                 color=SPK["h"]["main"])
-    hand(s, 1250, 920, 620, 40, "сравнивали по открытым страницам "
-         "сервисов", size=22, color=MUTED, rot=-1)
+    hand(s, 1080, 920, 780, 40, "сравнивали по открытым страницам "
+         "сервисов", size=22, color=MUTED, rot=-1, align=PP_ALIGN.RIGHT)
     return s
 
 
@@ -369,7 +380,7 @@ def s_task(prs):
          "тестов, покрытие 89,4%", "app/service.py"]],
         [0.25, 0.55, 0.2], row_h=78, size=25, mono_col=2,
         colors=lambda i, j, v: SPK["m"]["main"] if j == 2 else None)
-    hand(s, 1530, 168, 320, 50, "всё по ТЗ ✓", size=34, rot=-4)
+    hand(s, 1440, 168, 420, 50, "всё по ТЗ ✓", size=34, rot=-4)
     sticky(s, L + 20, 796, 1260, 140, [
         [("+ сверх задания: ", {"bold": True, "font": BODY}),
          ("поверх этого же API - целый сайт для читателей (7 ролей, "
@@ -611,7 +622,7 @@ def s_ui(prs):
              ("цензура грубых слов", CREAM, 1)]
     x, y = L, 740
     for f, c, r in feats:
-        w = len(f) * 15 + 60
+        w = len(tr(f)) * 15 + 60
         if x + w > 1500:
             x, y = L, y + 100
         sticky(s, x, y, w, 76, [f], color=c, rot=r, size=24, font=BODY)
@@ -691,6 +702,8 @@ ORDER = ["cover", "problem", "task", "backend", "arch", "db", "security",
 
 
 def build(version, filename):
+    global LANG
+    LANG = "ky" if version == "рус-кыр" else "ru"
     prs = Presentation()
     prs.slide_width, prs.slide_height = px(1920), px(1080)
     prs.core_properties.title = "Оқу - предзащита курсового проекта"
