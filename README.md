@@ -10,7 +10,7 @@
 Интерфейс на русском, казахском, кыргызском и английском.
 
 [![Сайт](https://img.shields.io/badge/сайт-130--17--21--59.sslip.io-0f6e5a)](https://130-17-21-59.sslip.io)
-[![API](https://img.shields.io/badge/API-Swagger%20%2F%20OpenAPI-85ea2d?logo=swagger&logoColor=black)](https://130-17-21-59.sslip.io/docs)
+[![API](https://img.shields.io/badge/API-Swagger_UI-85ea2d?logo=swagger&logoColor=black)](https://130-17-21-59.sslip.io/docs)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776ab?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![Тесты](https://img.shields.io/badge/тесты-155%20пройдено-2ea44f)
