@@ -412,7 +412,7 @@ function renderChrome() {
 
     $("#footer").innerHTML = `<div class="footer-in">
         <div class="footer-brand"><svg aria-hidden="true"><use href="#logo"/></svg>
-          <div><b>Оқу</b>© 2026 · ${esc(t("footer.uni"))}</div></div>
+          <div><b>${esc(t("brand.name"))}</b>© 2026 · ${esc(t("footer.uni"))}</div></div>
         <nav>
           <a href="#/terms">${esc(t("footer.terms"))}</a>
           <a href="#/privacy">${esc(t("footer.privacy"))}</a>
@@ -719,7 +719,10 @@ Oqu.router = {
     },
 };
 
-function setTitle(text) { document.title = text ? `${text} — Оқу` : `Оқу — ${t("brand.tagline")}`; }
+function setTitle(text) {
+    const brand = t("brand.name");   // по-кыргызски «Окуу», в остальных языках «Оқу»
+    document.title = text ? `${text} — ${brand}` : `${brand} — ${t("brand.tagline")}`;
+}
 
 /* ---------- Общие куски разметки ---------------------------------------- */
 function emptyState(ic, title, text = "", actions = "") {
