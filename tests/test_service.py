@@ -624,13 +624,43 @@ def test_progress_puts_book_on_reading_shelf(db, reader):
     assert service.continue_reading(db, reader["id"]) == []
 
 
-@pytest.mark.parametrize("lang", ["kk", "en"])
+@pytest.mark.parametrize("lang", ["kk", "ky", "en"])
 def test_translations_complete(lang):
-    # В kk/en нет только русских форм множественного числа (few/many).
+    # В kk/ky/en нет только русских форм множественного числа (few/many).
     from app import i18n
     missing = {k for k in i18n.missing_keys(lang)
                if not k.endswith((".few", ".many"))}
     assert missing == set()
+
+
+def test_kyrgyz_language_for_user_and_book(db, reader):
+    service.set_language(db, reader["id"], "ky")
+    assert service.get_user(db, reader["id"])["language"] == "ky"
+    bid = service.add_book(db, "owner", "Манас", "Эл оозунан", language="ky")
+    assert service.get_book(db, bid)["language"] == "ky"
+
+
+def test_old_database_gets_kyrgyz(tmp_path):
+    # База, созданная до появления кыргызского, должна принять «ky»
+    # после обновления программы (миграция ограничения CHECK).
+    import sqlite3
+    from app import db as dbmod
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(dbmod.SCHEMA.replace(dbmod._NEW_LANG_CHECK,
+                                           dbmod._OLD_LANG_CHECK))
+    old.close()
+    conn = connect(path)
+    try:
+        sql = conn.execute("SELECT sql FROM sqlite_master "
+                           "WHERE name = 'users'").fetchone()[0]
+        assert "'ky'" in sql
+        uid = service.register_user(conn, "kyrgyz", "ky@mail.kg",
+                                    "Parol2026", language="ky")
+        assert service.get_user(conn, uid)["language"] == "ky"
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        conn.close()
 
 
 def test_reading_moves_want_to_reading(db, reader):

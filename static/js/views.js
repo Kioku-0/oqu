@@ -11,7 +11,7 @@ const { $, $$, esc, icon, t, plural, api, can, store, toast, toastError, openMod
 const route = (p, h, o) => Oqu.router.add(p, h, o);
 
 const SHELVES = ["reading", "want", "read", "dropped"];
-const LANG_NAMES = { ru: "lang.ru", kk: "lang.kk", en: "lang.en" };
+const LANG_NAMES = { ru: "lang.ru", kk: "lang.kk", ky: "lang.ky", en: "lang.en" };
 const COVER_PATTERNS = ["auto", "plain", "stripes", "diagonal", "dots", "grid", "waves", "ornament", "frame", "band", "sun"];
 const COLORS = ["#1f5f4a", "#0f4c81", "#7a2e2e", "#b0532c", "#6b3fa0", "#2f7f8f", "#a3782a", "#3d3d3d", "#9b3b54", "#4f7a2e"];
 
@@ -184,7 +184,7 @@ route(/^\/catalog$/, async (view, _m, params) => {
             <span>${esc(label)}</span>${n !== undefined ? `<span class="muted">${n}</span>` : ""}</button>`;
         $("#filters").innerHTML = `
           <div><h3>${esc(t("filter.genre"))}</h3><div class="filter-list">${opt("genre", "", t("common.all"))}${genres.map((g) => opt("genre", g.name, genreName(g.name), g.count)).join("")}</div></div>
-          <div><h3>${esc(t("filter.language"))}</h3><div class="filter-list">${opt("language", "", t("common.all"))}${["ru", "kk", "en"].map((l) => opt("language", l, t(LANG_NAMES[l]))).join("")}</div></div>
+          <div><h3>${esc(t("filter.language"))}</h3><div class="filter-list">${opt("language", "", t("common.all"))}${["ru", "kk", "ky", "en"].map((l) => opt("language", l, t(LANG_NAMES[l]))).join("")}</div></div>
           <div><h3>${esc(t("filter.access"))}</h3><div class="filter-list">${opt("access", "", t("common.all"))}${opt("access", "free", t("filter.free"))}${opt("access", "paid", t("filter.paid"))}</div></div>
           <div><h3>${esc(t("filter.years"))}</h3><div class="row" style="grid-template-columns:1fr 1fr">
             <input class="input" type="number" min="0" max="2100" id="f-yf" placeholder="${esc(t("filter.from"))}" value="${esc(p.get("year_from") || "")}">
@@ -1002,7 +1002,7 @@ function settingsTab(body, u) {
           <small class="hint">${esc(t("auth.password_hint"))}</small></label>
         <button class="btn primary">${esc(t("settings.change"))}</button></form>
       <div class="card"><h2>${esc(t("settings.interface"))}</h2>
-        <div class="field"><span>${esc(t("settings.language"))}</span><div class="seg">${["kk", "ru", "en"].map((l) =>
+        <div class="field"><span>${esc(t("settings.language"))}</span><div class="seg">${["kk", "ky", "ru", "en"].map((l) =>
             `<button data-l="${l}" aria-pressed="${Oqu.state.lang === l}">${esc(t(LANG_NAMES[l]))}</button>`).join("")}</div></div>
         <div class="field"><span>${esc(t("settings.theme"))}</span><div class="seg">${["light", "dark"].map((th) =>
             `<button data-th="${th}" aria-pressed="${Oqu.state.theme === th}">${esc(t("theme." + th))}</button>`).join("")}</div></div></div>
@@ -1095,7 +1095,7 @@ async function bookEditor(view, book) {
             <label class="field"><span>${esc(t("book.author"))} *</span><input class="input" name="author" required maxlength="200" value="${esc(b.author)}"></label>
             <div class="row">
               <label class="field"><span>${esc(t("book.year"))}</span><input class="input" name="year" type="number" min="0" max="2100" value="${b.year ?? ""}"></label>
-              <label class="field"><span>${esc(t("book.language"))}</span><select class="select" name="language">${["ru", "kk", "en"].map((l) =>
+              <label class="field"><span>${esc(t("book.language"))}</span><select class="select" name="language">${["ru", "kk", "ky", "en"].map((l) =>
                 `<option value="${l}" ${b.language === l ? "selected" : ""}>${esc(t(LANG_NAMES[l]))}</option>`).join("")}</select></label>
               <label class="field"><span>${esc(t("book.genre"))}</span><input class="input" name="genre" list="genre-list" maxlength="60" value="${esc(b.genre)}">
                 <datalist id="genre-list">${genres.map((g) => `<option value="${esc(g.name)}">`).join("")}</datalist></label>
@@ -1282,16 +1282,19 @@ async function bookEditor(view, book) {
    ====================================================================== */
 async function legalPage(view, name) {
     const lang = Oqu.state.lang;
-    let html;
+    let html, note = "";
     try {
         const res = await fetch(`/static/legal/${name}.${lang}.html?v=${Oqu.version}`);
         if (!res.ok) throw new Error();
         html = await res.text();
     } catch {
+        // Перевода нет (например, кыргызского) — показываем русский текст
+        // и честно предупреждаем об этом.
         html = await (await fetch(`/static/legal/${name}.ru.html?v=${Oqu.version}`)).text();
+        note = `<p class="hint">${esc(t("legal.ru_only"))}</p>`;
     }
     // Файлы лежат на нашем сервере и не содержат пользовательских данных.
-    view.innerHTML = `<article class="legal">${html}</article>`;
+    view.innerHTML = `<article class="legal">${note}${html}</article>`;
     setTitle($("h1", view)?.textContent || "");
 }
 route(/^\/terms$/, (view) => legalPage(view, "terms"));

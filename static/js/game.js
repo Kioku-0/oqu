@@ -33,7 +33,7 @@ const setText = (el, text) => { if (el && el.textContent !== text) el.textConten
 function fmtBig(n) {
     n = Math.floor(n);
     if (n < 10000) return fmtNum(n);
-    const loc = Oqu.state.lang === "kk" && KK_BROKEN ? "ru-RU" : LOCALES[Oqu.state.lang];
+    const loc = ownDates() ? "ru-RU" : LOCALES[Oqu.state.lang];
     return new Intl.NumberFormat(loc, { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 const fmtRate = (n) => (n < 10 ? n.toFixed(1).replace(".", Oqu.state.lang === "en" ? "." : ",") : fmtBig(n));

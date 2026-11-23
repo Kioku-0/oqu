@@ -6,7 +6,7 @@
 * :mod:`app.security` — хэширование паролей и JWT-токены;
 * :mod:`app.service`  — бизнес-логика (не зависит от интерфейса);
 * :mod:`app.schemas`  — модели запросов и ответов (Pydantic);
-* :mod:`app.i18n`     — переводы интерфейса (ru/kk/en);
+* :mod:`app.i18n`     — переводы интерфейса (ru/kk/ky/en);
 * :mod:`app.web`      — веб-интерфейс и REST API на FastAPI;
 * :mod:`app.seed`     — наполнение базы демонстрационными данными.
 """

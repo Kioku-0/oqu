@@ -12,7 +12,7 @@ from typing import Generic, Optional, TypeVar
 from pydantic import BaseModel, Field
 
 _EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-_LANG_PATTERN = "^(ru|kk|en)$"
+_LANG_PATTERN = "^(ru|kk|ky|en)$"
 _COLOR_PATTERN = "^#[0-9a-fA-F]{6}$"
 _COVER_PATTERN = ("^(auto|plain|stripes|diagonal|dots|grid|waves|ornament|"
                   "frame|band|sun)$")

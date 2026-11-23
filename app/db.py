@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at      TEXT    NOT NULL,
     CHECK (role IN ('owner', 'editor', 'author', 'moderator',
                     'student', 'user', 'guest')),
-    CHECK (language IN ('ru', 'kk', 'en'))
+    CHECK (language IN ('ru', 'kk', 'ky', 'en'))
 );
 
 -- Книги ----------------------------------------------------------------------
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS books (
     CHECK (year IS NULL OR (year >= 0 AND year <= 2100)),
     CHECK (is_paid IN (0, 1)),
     CHECK (price >= 0),
-    CHECK (language IN ('ru', 'kk', 'en'))
+    CHECK (language IN ('ru', 'kk', 'ky', 'en'))
 );
 
 -- Комментарии ----------------------------------------------------------------
@@ -252,6 +252,36 @@ def natural_key(value):
     return re.sub(r"\d+", lambda m: m.group(0).zfill(10), value.lower())
 
 
+_OLD_LANG_CHECK = "CHECK (language IN ('ru', 'kk', 'en'))"
+_NEW_LANG_CHECK = "CHECK (language IN ('ru', 'kk', 'ky', 'en'))"
+
+
+def _allow_kyrgyz(db: sqlite3.Connection) -> None:
+    """Разрешить язык ``ky`` в базах, созданных до появления кыргызского.
+
+    SQLite не умеет менять ограничение CHECK через ALTER TABLE. Документация
+    SQLite (раздел «Making Other Kinds Of Table Schema Changes») разрешает
+    для этого поправить текст схемы через ``PRAGMA writable_schema``: данные
+    на диске при этом не меняются, ограничение только становится шире.
+    """
+    rows = db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name IN ('users', 'books') AND sql LIKE ?",
+        (f"%{_OLD_LANG_CHECK}%",)).fetchall()
+    if not rows:
+        return
+    version = db.execute("PRAGMA schema_version").fetchone()[0]
+    db.execute("PRAGMA writable_schema = ON")
+    try:
+        db.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) "
+                   "WHERE type = 'table' AND name IN ('users', 'books')",
+                   (_OLD_LANG_CHECK, _NEW_LANG_CHECK))
+        db.execute(f"PRAGMA schema_version = {int(version) + 1}")
+    finally:
+        db.execute("PRAGMA writable_schema = OFF")
+    db.commit()
+
+
 def _migrate(db: sqlite3.Connection) -> None:
     """Добавить в существующие таблицы столбцы из новых версий схемы."""
     for table, column, ddl in _ADDED_COLUMNS:
@@ -260,6 +290,7 @@ def _migrate(db: sqlite3.Connection) -> None:
         if column not in existing:
             db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
     db.commit()
+    _allow_kyrgyz(db)
 
 
 def connect(path: str = ":memory:") -> sqlite3.Connection:

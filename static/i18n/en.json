@@ -24,6 +24,7 @@
   "common.back": "Back",
   "lang.ru": "Русский",
   "lang.kk": "Қазақша",
+  "lang.ky": "Кыргызча",
   "lang.en": "English",
   "role.owner": "Lead developer",
   "role.editor": "Editor",
@@ -50,7 +51,7 @@
   "genre.сказка": "Fairy tale",
   "home.title": "Read. Learn. Pick up where you left off.",
   "home.kicker": "Digital library · Kyzylorda",
-  "home.lead": "A catalog of books in three languages, reading right in the browser, and shelves that remember the page you stopped on.",
+  "home.lead": "A catalog of books in several languages, reading right in the browser, and shelves that remember the page you stopped on.",
   "home.to_catalog": "Open the catalog",
   "home.to_case": "Pick from the shelf",
   "home.continue": "Continue reading",
@@ -540,5 +541,6 @@
   "srv:Не больше 60 иллюстраций в одной книге": "No more than 60 illustrations per book",
   "genre.ранобэ": "Light novel",
   "genre.фэнтези": "Fantasy",
-  "genre.саморазвитие": "Self-improvement"
+  "genre.саморазвитие": "Self-improvement",
+  "legal.ru_only": "This document is available in Russian."
 }

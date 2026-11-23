@@ -37,7 +37,7 @@ MAX_TAGS_PER_BOOK = 10
 USERNAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁёӘәҒғҚқҢңӨөҰұҮүҺһІі0-9_.-]{3,32}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
-LANGUAGES = ("ru", "kk", "en")
+LANGUAGES = ("ru", "kk", "ky", "en")
 
 AGREEMENT_VERSION = "1.0 от 20.11.2026"
 
@@ -278,7 +278,7 @@ def register_user(db: sqlite3.Connection, username: str, email: str,
     if role not in VALID_ROLES or role == "guest":
         raise ValidationError("Недопустимая роль")
     if language not in LANGUAGES:
-        raise ValidationError("Поддерживаются языки ru, kk, en")
+        raise ValidationError("Поддерживаются языки ru, kk, ky, en")
     display_name = (display_name or username).strip()[:64]
     try:
         cur = db.execute(
@@ -449,7 +449,7 @@ def verify_student(db: sqlite3.Connection, actor_role: str,
 def set_language(db: sqlite3.Connection, user_id: int, language: str) -> None:
     """Сохранить язык интерфейса пользователя."""
     if language not in LANGUAGES:
-        raise ValidationError("Поддерживаются языки ru, kk, en")
+        raise ValidationError("Поддерживаются языки ru, kk, ky, en")
     get_user(db, user_id)
     db.execute("UPDATE users SET language = ? WHERE id = ?",
                (language, user_id))
@@ -498,7 +498,7 @@ def _validate_book(title: str, author: str, year: Optional[int],
     if year is not None and not 0 <= int(year) <= 2100:
         raise ValidationError("Год должен быть в диапазоне 0–2100")
     if language not in LANGUAGES:
-        raise ValidationError("Язык книги: ru, kk или en")
+        raise ValidationError("Язык книги: ru, kk, ky или en")
     if not COLOR_RE.match(cover_color or ""):
         raise ValidationError("Цвет обложки в формате #RRGGBB")
     if int(price) < 0:

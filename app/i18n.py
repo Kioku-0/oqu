@@ -1,4 +1,5 @@
-"""Переводы интерфейса: русский (ru), казахский (kk), английский (en).
+"""Переводы интерфейса: русский (ru), казахский (kk), кыргызский (ky),
+английский (en).
 
 Основной язык проекта — русский. Словари лежат в ``static/i18n/<язык>.json``:
 браузер загружает их напрямую (они кэшируются), а для API и для будущих
@@ -12,7 +13,7 @@ import json
 import os
 from functools import lru_cache
 
-SUPPORTED = ("ru", "kk", "en")
+SUPPORTED = ("ru", "kk", "ky", "en")
 DEFAULT = "ru"
 _DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
     __file__))), "static", "i18n")

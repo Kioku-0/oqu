@@ -42,7 +42,7 @@ function debounce(fn, ms) {
 }
 
 /* ---------- Переводы ---------------------------------------------------- */
-const LOCALES = { ru: "ru-RU", kk: "kk-KZ", en: "en-GB" };
+const LOCALES = { ru: "ru-RU", kk: "kk-KZ", ky: "ky-KG", en: "en-GB" };
 
 /** Перевод по ключу с подстановкой {переменных}. Если ключа нет в выбранном
  *  языке — берётся русский (основной язык проекта). */
@@ -71,11 +71,12 @@ async function setLang(lang, { save = true } = {}) {
     if (!Object.keys(Oqu.state.fallback).length) Oqu.state.fallback = await loadDict("ru");
     Oqu.state.t = lang === "ru" ? Oqu.state.fallback : await loadDict(lang);
     Oqu.state.lang = lang;
-    document.documentElement.lang = lang === "kk" ? "kk" : lang;
+    document.documentElement.lang = lang;
     store.set("lang", lang);
     if (save && Oqu.state.user) api("/api/me/language", { method: "PUT", body: { language: lang } }).catch(() => {});
     applyStaticI18n();
     renderChrome();
+    if (!$("#notice").hidden) showStorageNotice();   // перевести и плашку
     if (save) Oqu.router.render();
 }
 
@@ -90,40 +91,64 @@ function applyStaticI18n(root = document) {
 /** Сервер хранит время в UTC («ГГГГ-ММ-ДД ЧЧ:ММ:СС»); показываем в местном. */
 function parseUtc(s) { return s ? new Date(String(s).replace(" ", "T") + "Z") : null; }
 /* Некоторые браузеры (урезанные сборки Chromium/Electron) «знают» казахский
- * только на словах: вместо «22 қараша» выдают «2026 M11 22», вместо «кеше» —
- * «yesterday». Проверяем один раз и тогда форматируем сами. */
-const KK_BROKEN = (() => {
+ * и кыргызский только на словах: вместо «22 қараша» выдают «2026 M11 22»,
+ * вместо «кеше» — «yesterday». Проверяем один раз и тогда форматируем сами. */
+function localeBroken(locale) {
     try {
-        return new Intl.RelativeTimeFormat("kk-KZ", { numeric: "auto" }).format(-1, "day") === "yesterday"
-            || /M\d/.test(new Intl.DateTimeFormat("kk-KZ", { dateStyle: "medium" }).format(new Date(2026, 10, 22)));
+        return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-1, "day") === "yesterday"
+            || /M\d/.test(new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(2026, 10, 22)));
     } catch { return true; }
-})();
-const KK_MONTHS = ["қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым", "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан"];
+}
+const KK_BROKEN = localeBroken("kk-KZ");
+const KY_BROKEN = localeBroken("ky-KG");
+/* Запасные названия месяцев и «N … бұрын / мурун» для kk и ky. */
+const OWN_DATES = {
+    kk: {
+        months: ["қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым", "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан"],
+        date: (y, d, m) => `${y} ж. ${d} ${m}`,
+        words: { second: "секунд", minute: "минут", hour: "сағат", day: "күн", month: "ай", year: "жыл" },
+        yesterday: "кеше", tomorrow: "ертең", now: "жаңа ғана", ago: "бұрын", later: "кейін",
+    },
+    ky: {
+        months: ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"],
+        date: (y, d, m) => `${y}-ж., ${d}-${m}`,
+        words: { second: "секунд", minute: "мүнөт", hour: "саат", day: "күн", month: "ай", year: "жыл" },
+        yesterday: "кечээ", tomorrow: "эртең", now: "азыр эле", ago: "мурун", later: "кийин",
+    },
+};
+/** Свои правила дат, если браузер не умеет текущий язык; иначе null. */
+function ownDates() {
+    const lang = Oqu.state.lang;
+    return (lang === "kk" && KK_BROKEN) || (lang === "ky" && KY_BROKEN) ? OWN_DATES[lang] : null;
+}
 function fmtDate(s, withTime = false) {
     const d = parseUtc(s);
     if (!d || isNaN(d)) return "";
-    if (Oqu.state.lang === "kk" && KK_BROKEN) {
+    const own = ownDates();
+    if (own) {
         const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-        return `${d.getFullYear()} ж. ${d.getDate()} ${KK_MONTHS[d.getMonth()]}${withTime ? ", " + hm : ""}`;
+        return own.date(d.getFullYear(), d.getDate(), own.months[d.getMonth()]) + (withTime ? ", " + hm : "");
     }
     const opts = withTime ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "medium" };
     return new Intl.DateTimeFormat(LOCALES[Oqu.state.lang], opts).format(d);
 }
-/* Запасной «N … бұрын» для казахского. */
-const KK_RTF = {
-    format(n, unit) {
-        if (unit === "day" && n === -1) return "кеше";
-        if (unit === "day" && n === 1) return "ертең";
-        if (unit === "second" && Math.abs(n) < 10) return "жаңа ғана";
-        const word = { second: "секунд", minute: "минут", hour: "сағат", day: "күн", month: "ай", year: "жыл" }[unit];
-        return n < 0 ? `${-n} ${word} бұрын` : `${n} ${word} кейін`;
-    },
-};
+function ownRtf(own) {
+    return {
+        format(n, unit) {
+            if (unit === "day" && n === -1) return own.yesterday;
+            if (unit === "day" && n === 1) return own.tomorrow;
+            if (unit === "second" && Math.abs(n) < 10) return own.now;
+            const word = own.words[unit];
+            return n < 0 ? `${-n} ${word} ${own.ago}` : `${n} ${word} ${own.later}`;
+        },
+    };
+}
 function fmtAgo(s) {
     const d = parseUtc(s);
     if (!d) return "";
     const sec = Math.round((d - Date.now()) / 1000);
-    const rtf = Oqu.state.lang === "kk" && KK_BROKEN ? KK_RTF
+    const own = ownDates();
+    const rtf = own ? ownRtf(own)
         : new Intl.RelativeTimeFormat(LOCALES[Oqu.state.lang], { numeric: "auto" });
     const steps = [[60, "second"], [60, "minute"], [24, "hour"], [30, "day"], [12, "month"], [Infinity, "year"]];
     let value = sec;
@@ -357,15 +382,15 @@ function renderChrome() {
         `<a href="${i.href}" class="${i.match.test(hash) ? "active" : ""}">${icon(i.icon)}<span>${esc(t(i.key))}</span></a>`).join("")
         + (can("book.add") ? `<a href="#/books/new" class="${/^#\/books\/new/.test(hash) ? "active" : ""}">${icon("plus")}<span>${esc(t("nav.add_book"))}</span></a>` : "");
 
-    // Нижняя панель на телефоне: 5 главных разделов.
+    // Нижняя панель на телефоне: 5 главных разделов. Вход и профиль —
+    // в шапке справа сверху (как на большинстве сайтов), здесь их нет.
     const tabs = [
         { href: "#/", icon: "home", key: "nav.home", match: /^#\/?$/ },
         { href: "#/catalog", icon: "grid", key: "nav.catalog", match: /^#\/catalog/ },
         { href: "#/bookcase", icon: "case", key: "nav.bookcase", match: /^#\/bookcase/ },
         { href: Oqu.state.user ? "#/shelf" : "#/stats", icon: Oqu.state.user ? "bookmark" : "chart",
           key: Oqu.state.user ? "nav.shelf" : "nav.stats", match: Oqu.state.user ? /^#\/shelf/ : /^#\/stats/ },
-        { href: Oqu.state.user ? "#/profile" : "#/login", icon: "user",
-          key: Oqu.state.user ? "nav.profile" : "auth.login", match: /^#\/(profile|login)/ },
+        { href: "#/game", icon: "game", key: "nav.game", match: /^#\/game/ },
     ];
     $("#tabbar").innerHTML = tabs.map((i) =>
         `<a href="${i.href}" class="${i.match.test(hash) ? "active" : ""}">${icon(i.icon)}<span>${esc(t(i.key))}</span></a>`).join("");
@@ -836,7 +861,7 @@ async function boot() {
     const prefersDark = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
     setTheme(store.get("theme", prefersDark ? "dark" : "light"));
     const browserLang = (navigator.language || "ru").slice(0, 2);
-    const lang = store.get("lang", ["kk", "en"].includes(browserLang) ? browserLang : "ru");
+    const lang = store.get("lang", ["kk", "ky", "en"].includes(browserLang) ? browserLang : "ru");
     await Promise.all([setLang(lang, { save: false }), loadMe()]);
     if (Oqu.state.user && Oqu.state.user.language !== Oqu.state.lang && !store.get("lang")) {
         await setLang(Oqu.state.user.language, { save: false });

@@ -502,7 +502,7 @@ def list_books(
     year_from: Optional[int] = Query(None, ge=0, le=2100),
     year_to: Optional[int] = Query(None, ge=0, le=2100),
     genre: str = Query("", max_length=60),
-    language: str = Query("", pattern="^(|ru|kk|en)$"),
+    language: str = Query("", pattern="^(|ru|kk|ky|en)$"),
     tag: str = Query("", max_length=40),
     access: str = Query("", pattern="^(|free|paid)$"),
     sort: str = Query("title", pattern="^(" + "|".join(service.BOOK_SORTS)
@@ -1074,7 +1074,7 @@ def admin_log_csv(request: Request,
 # Интерфейс
 # ===========================================================================
 @app.get("/api/i18n/{lang}", tags=["Интерфейс"], summary="Словарь переводов")
-def get_translations(lang: str = Path(..., pattern="^(ru|kk|en)$")):
+def get_translations(lang: str = Path(..., pattern="^(ru|kk|ky|en)$")):
     return i18n.get(lang)
 
 
