@@ -1,0 +1,26 @@
+<section id="arch" class="sp-m alt">
+<div class="bar bar-m"></div>
+<p class="eyebrow">Архитектура</p>
+<h2>Три слоя, каждый отвечает за своё</h2>
+<div class="row" style="gap:56px; align-items:flex-start">
+<div style="flex:1">
+<div class="layer l1 anim" style="--i:1"><h3>Сайт: HTML, CSS, JS</h3><p>браузер, телефон</p></div>
+<p class="down">↓ HTTP + JSON, токен JWT</p>
+<div class="layer l2 anim" style="--i:2"><h3>web.py: REST API</h3><p>маршруты, права, проверки</p></div>
+<p class="down">↓ вызовы функций</p>
+<div class="layer l2 anim" style="--i:3"><h3>service.py: бизнес-логика</h3><p>правила, не знает про HTTP</p></div>
+<p class="down">↓ SQL с параметрами</p>
+<div class="layer l3 anim" style="--i:4"><h3>db.py: SQLite</h3><p>16 таблиц</p></div>
+</div>
+<div style="width:520px; display:flex; flex-direction:column; gap:20px">
+<div class="card anim" style="--i:5"><h3>Почему так</h3><p>логику можно проверить тестами без сервера и браузера</p></div>
+<div class="card anim" style="--i:6"><h3>Вторая платформа</h3><p>мобильное или настольное приложение подключится к тому же API</p></div>
+</div>
+</div>
+<div class="foot"><p>Оқу · архитектура</p><p>6</p></div>
+<aside>[Мұхан] Как всё устроено. Три слоя. Сверху сайт: обычные HTML, CSS и JavaScript, без сборки. Он общается с сервером только через HTTP-запросы и JSON, прикладывая JWT-токен.
+
+Дальше web.py: это REST API на FastAPI. Он принимает запрос, проверяет данные и права и вызывает бизнес-логику. Бизнес-логика вынесена в отдельный модуль service.py, как требует методичка: он ничего не знает про HTTP, поэтому его легко тестировать. Внизу база SQLite: 16 таблиц, все запросы параметризованы.
+
+Ответ на вопрос «что нужно для второй платформы»: ничего менять на сервере не нужно. Мобильное или настольное приложение просто подключается к тому же API.</aside>
+</section>

@@ -1,0 +1,77 @@
+/* «Оқу» - презентация предзащиты. Палитра сайта: бумага, чернила, зелёный.
+   Полоса слева - кто говорит: зелёная - Мұхан, оранжевая - Хадизат. */
+:root {
+  --paper: #F3F4EF;
+  --paper2: #E7EAE2;
+  --card: #FBFBF8;
+  --ink: #1B1D1A;
+  --soft: #4A4F47;
+  --muted: #7C8278;
+  --green: #0F6E5A;
+  --green-soft: #DCEBE4;
+  --orange: #B8561A;
+  --orange-soft: #F6E2D2;
+}
+body { font-family: 'Onest', Arial, sans-serif; color: var(--ink); }
+section {
+  background: var(--paper);
+  color: var(--ink);
+  padding: 112px 128px 160px 176px;
+  position: relative;
+}
+section.dark { background: var(--ink); color: var(--paper); }
+section.alt { background: var(--paper2); }
+
+.bar { position: absolute; left: 0; top: 0; width: 32px; height: 1080px; }
+.bar-m { background: var(--green); }
+.bar-h { background: var(--orange); }
+
+h1, h2, h3 { font-family: 'Literata', Georgia, serif; color: var(--ink); }
+section.dark h1, section.dark h2, section.dark h3 { color: var(--paper); }
+h1 { font-size: 120px; font-weight: 700; line-height: 1.05; }
+h2 { font-size: 64px; font-weight: 700; line-height: 1.12; margin-bottom: 40px; }
+h3 { font-size: 36px; font-weight: 700; line-height: 1.2; margin-bottom: 10px; }
+p { font-size: 32px; line-height: 1.4; color: var(--soft); }
+section.dark p { color: #C9CEC5; }
+.eyebrow { font-size: 24px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 18px; }
+.sp-m .eyebrow { color: var(--green); }
+.sp-h .eyebrow { color: var(--orange); }
+.lead { font-size: 36px; line-height: 1.4; color: var(--soft); }
+.small { font-size: 24px; color: var(--soft); }
+
+.foot { position: absolute; left: 176px; bottom: 64px; width: 1616px; display: flex; justify-content: space-between; }
+.foot p { font-size: 24px; color: var(--muted); }
+
+.row { display: flex; gap: 32px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; }
+.grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 24px; }
+.card { background: var(--card); border-radius: 20px; padding: 28px 34px; box-shadow: 0 2px 0 rgba(27,29,26,.06); }
+section.alt .card { background: var(--paper); }
+.card p { font-size: 28px; }
+.card .num { font-family: 'Literata', Georgia, serif; font-size: 88px; font-weight: 700; line-height: 1; color: var(--green); margin-bottom: 8px; }
+.sp-h .card .num { color: var(--orange); }
+.card .num-label { font-size: 26px; color: var(--soft); }
+.chip { display: inline-block; font-size: 24px; font-weight: 600; padding: 8px 18px; border-radius: 999px; background: var(--green-soft); color: var(--green); }
+.sp-h .chip { background: var(--orange-soft); color: #8C4210; }
+
+table { font-size: 26px; color: var(--ink); width: 100%; }
+th { text-align: left; font-weight: 600; }
+
+.shot { border-radius: 16px; object-fit: contain; background: #DDE1D8; box-shadow: 0 10px 30px rgba(27,29,26,.18); }
+.cap { font-size: 24px; color: var(--muted); margin-top: 12px; }
+
+.layer { border-radius: 20px; padding: 24px 36px; display: flex; justify-content: space-between; align-items: center; }
+.layer h3 { margin: 0; font-size: 34px; }
+.layer p { font-size: 26px; margin: 0; }
+.l1 { background: var(--green-soft); }
+.l2 { background: var(--green); }
+.l2 h3, .l2 p { color: var(--paper); }
+.l3 { background: var(--ink); }
+.l3 h3, .l3 p { color: var(--paper); }
+.down { font-size: 30px; color: var(--green); text-align: center; margin: 4px 0; }
+
+.big { font-family: 'Literata', Georgia, serif; font-size: 200px; font-weight: 700; line-height: 1; color: var(--green); }
+
+@keyframes rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+.anim { animation: rise 600ms ease-out both; animation-delay: calc(var(--i, 0) * 110ms); }
