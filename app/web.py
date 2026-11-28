@@ -954,7 +954,7 @@ def remove_trailer(book_id: int, request: Request,
 
 @app.post("/api/books/{book_id}/trailer/generate",
           response_model=schemas.TrailerOut, tags=["Трейлеры"],
-          summary="Сгенерировать трейлер ИИ (Claude) и сохранить")
+          summary="Сгенерировать трейлер ИИ (Gemini) и сохранить")
 def generate_trailer(book_id: int, request: Request,
                      user: sqlite3.Row = Depends(require_user),
                      db: sqlite3.Connection = Depends(get_db)):
@@ -970,7 +970,8 @@ def generate_trailer(book_id: int, request: Request,
 @app.get("/api/ai/status", tags=["Трейлеры"],
          summary="Включены ли ИИ-функции на сервере")
 def ai_status():
-    return {"enabled": ai.is_configured(), "model": ai.MODEL}
+    return {"enabled": ai.is_configured(), "provider": ai.provider(),
+            "model": ai.model_name()}
 
 
 # ===========================================================================
@@ -1091,7 +1092,7 @@ def manga_translations(book_id: int,
 
 @app.post("/api/manga/pages/{page_id}/translate",
           response_model=list[schemas.TranslationBox], tags=["Манга"],
-          summary="Перевести страницу ИИ (Claude) с любого языка")
+          summary="Перевести страницу ИИ (Gemini) с любого языка")
 def translate_manga_page(page_id: int, data: schemas.TranslateIn,
                          request: Request,
                          user: sqlite3.Row = Depends(require_user),

@@ -4,6 +4,7 @@
 честно сообщают «ИИ не настроен», и разбор ответа модели.
 """
 
+import json
 import os
 import sys
 
@@ -166,11 +167,76 @@ def test_demo_media_added_once(db, tmp_path, monkeypatch):
 # --- ИИ без ключа и разбор ответа --------------------------------------------
 def test_ai_without_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert ai.is_configured() is False
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert ai.is_configured() is False and ai.provider() == ""
     with pytest.raises(service.AIUnavailableError):
         ai.generate_trailer({"title": "Т", "author": "А"}, "")
     with pytest.raises(service.AIUnavailableError):
         ai.translate_page(b"x", "image/png", "ru")
+
+
+class _FakeResponse:
+    """Ответ «Gemini» без сети: тест не тратит бесплатный лимит."""
+
+    def __init__(self, payload):
+        self.body = json.dumps(payload).encode("utf-8")
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def _fake_gemini(monkeypatch, answer, seen):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    def urlopen(request, timeout=0):
+        seen.append(request)
+        return _FakeResponse({"candidates": [{"content": {"parts": [
+            {"text": json.dumps(answer, ensure_ascii=False)}]}}]})
+    monkeypatch.setattr(ai.urllib.request, "urlopen", urlopen)
+
+
+def test_gemini_translation_boxes(monkeypatch):
+    seen = []
+    _fake_gemini(monkeypatch, {"boxes": [
+        {"box_2d": [100, 200, 300, 500], "shape": "oval",
+         "src": "やあ", "text": "Привет"}]}, seen)
+    assert ai.provider() == "gemini"
+    boxes = ai.translate_page(b"\x89PNG", "image/png", "ru")
+    assert boxes == [{"x": 20.0, "y": 10.0, "w": 30.0, "h": 20.0,
+                      "text": "Привет", "shape": "oval", "src": "やあ"}]
+    # Ключ передаётся заголовком, а не в адресе запроса.
+    assert seen[0].get_header("X-goog-api-key") == "test-key"
+    assert "key=" not in seen[0].full_url
+    body = json.loads(seen[0].data)
+    assert body["contents"][0]["parts"][0]["inline_data"]["mime_type"] == \
+        "image/png"
+
+
+def test_gemini_trailer_is_cleaned(monkeypatch):
+    long = "Очень длинная подпись " * 20
+    _fake_gemini(monkeypatch, {"scenes": [
+        {"scene": "rider", "text": long}, {"scene": "ship", "text": "Море"},
+        {"scene": "storm", "text": "Буря"}]}, [])
+    scenes = ai.generate_trailer({"title": "Т", "author": "А"}, "")
+    assert len(scenes) == 3 and len(scenes[0]["text"]) <= 160
+
+
+def test_gemini_quota_exhausted(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    def urlopen(request, timeout=0):
+        raise ai.urllib.error.HTTPError(request.full_url, 429, "quota", {},
+                                        None)
+    monkeypatch.setattr(ai.urllib.request, "urlopen", urlopen)
+    with pytest.raises(service.AIUnavailableError, match="лимит"):
+        ai.translate_page(b"x", "image/png", "kk")
 
 
 def test_ai_rejects_unknown_language():
