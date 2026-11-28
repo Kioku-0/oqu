@@ -99,6 +99,14 @@ class ConflictError(ServiceError):
     """Конфликт данных (например, дубликат)."""
 
 
+class AIUnavailableError(ServiceError):
+    """ИИ-функция не настроена на сервере или временно недоступна."""
+
+
+# Тип издания: обычная книга (текст/PDF) или манга/комикс (страницы-картинки).
+BOOK_KINDS = ("book", "manga")
+
+
 # ---------------------------------------------------------------------------
 # Права доступа: принцип наименьших привилегий
 # ---------------------------------------------------------------------------
@@ -515,7 +523,7 @@ def add_book(db: sqlite3.Connection, actor_role: str, title: str, author: str,
              is_paid: bool = False, price: int = 0,
              paid_days: Optional[int] = None, external_url: str = "",
              tags: Optional[list[str]] = None,
-             added_by: Optional[int] = None) -> int:
+             added_by: Optional[int] = None, kind: str = "book") -> int:
     """Добавить книгу (право ``book.add``).
 
     Платная книга становится бесплатной через ``paid_days`` дней —
@@ -528,6 +536,8 @@ def add_book(db: sqlite3.Connection, actor_role: str, title: str, author: str,
         raise ValidationError("Для платной книги укажите срок платности")
     if external_url and not external_url.startswith(("https://", "http://")):
         raise ValidationError("Ссылка должна начинаться с http(s)://")
+    if kind not in BOOK_KINDS:
+        raise ValidationError("Тип: книга или манга")
     paid_until = None
     if is_paid:
         paid_until = (_now() + timedelta(days=int(paid_days))
@@ -535,12 +545,12 @@ def add_book(db: sqlite3.Connection, actor_role: str, title: str, author: str,
     cur = db.execute(
         "INSERT INTO books(title, author, year, language, genre, description,"
         " content, external_url, cover_color, cover_pattern, is_paid, price,"
-        " paid_until, added_by, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " paid_until, added_by, created_at, kind) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (title.strip(), author.strip(), year, language,
          (genre or "").strip().lower(), description or "", content or "",
          external_url or "", cover_color, cover_pattern, 1 if is_paid else 0,
-         int(price) if is_paid else 0, paid_until, added_by, _now_str()),
+         int(price) if is_paid else 0, paid_until, added_by, _now_str(), kind),
     )
     db.commit()
     if tags:
@@ -579,7 +589,9 @@ def edit_book(db: sqlite3.Connection, actor: sqlite3.Row | str, book_id: int,
     require_book_rights(actor, book, "book.edit", "book.edit_own")
     allowed = {"title", "author", "year", "language", "genre",
                "description", "content", "cover_color", "cover_pattern",
-               "external_url"}
+               "external_url", "kind"}
+    if fields.get("kind") is not None and fields["kind"] not in BOOK_KINDS:
+        raise ValidationError("Тип: книга или манга")
     updates = {k: v for k, v in fields.items()
                if k in allowed and v is not None}
     tags = fields.get("tags")
@@ -668,7 +680,8 @@ _LIST_COLUMNS = (
     "b.id, b.title, b.author, b.year, b.language, b.genre, b.description, "
     "b.cover_color, b.cover_pattern, b.cover_image, b.is_paid, b.price, "
     "b.paid_until, b.added_by, "
-    "b.external_url, b.created_at, "
+    "b.external_url, b.created_at, b.kind, (b.trailer <> '') AS has_trailer, "
+    "(SELECT COUNT(*) FROM manga_pages mp WHERE mp.book_id = b.id) AS pages, "
     "(b.file_path IS NOT NULL) AS has_file, (b.content <> '') AS has_text, "
     "(SELECT ROUND(AVG(r.value), 1) FROM ratings r WHERE r.book_id = b.id)"
     " AS rating, "
@@ -1717,3 +1730,215 @@ def control_present(db: sqlite3.Connection, actor: sqlite3.Row, action: str,
                (cur_slide, started_at, paused_at))
     db.commit()
     return get_present_state(db, now)
+
+
+# ---------------------------------------------------------------------------
+# Трейлер книги: 4–8 «страниц-сцен», которые листаются при открытии книги.
+# Сцена — готовая анимированная иллюстрация (рисует интерфейс) + короткая
+# интригующая подпись. Трейлер пишет автор или генерирует ИИ (app.ai).
+# ---------------------------------------------------------------------------
+TRAILER_SCENES = (
+    "rider", "ship", "city", "castle", "forest", "yurt", "train", "letter",
+    "duel", "ball", "robot", "rabbit", "storm", "road", "books", "space",
+)
+TRAILER_SOURCES = ("author", "ai", "demo")
+MIN_TRAILER_SCENES, MAX_TRAILER_SCENES = 3, 8
+MAX_SCENE_TEXT = 160
+
+
+def clean_trailer(scenes: Any) -> list[dict[str, str]]:
+    """Проверить сцены трейлера и вернуть их в чистом виде."""
+    if not isinstance(scenes, list):
+        raise ValidationError("Сцены трейлера — это список")
+    if not MIN_TRAILER_SCENES <= len(scenes) <= MAX_TRAILER_SCENES:
+        raise ValidationError(f"В трейлере от {MIN_TRAILER_SCENES} до "
+                              f"{MAX_TRAILER_SCENES} сцен")
+    result = []
+    for item in scenes:
+        if not isinstance(item, dict):
+            raise ValidationError("Неверная сцена трейлера")
+        scene = str(item.get("scene", "")).strip()
+        text = " ".join(str(item.get("text", "")).split())
+        if scene not in TRAILER_SCENES:
+            raise ValidationError(f"Неизвестная сцена: {scene[:20]}")
+        if not text:
+            raise ValidationError("У каждой сцены должна быть подпись")
+        if len(text) > MAX_SCENE_TEXT:
+            raise ValidationError(f"Подпись сцены — не длиннее "
+                                  f"{MAX_SCENE_TEXT} символов")
+        result.append({"scene": scene, "text": profanity.censor(text)})
+    return result
+
+
+def set_trailer(db: sqlite3.Connection, actor: sqlite3.Row | str,
+                book_id: int, scenes: Any, source: str = "author") -> dict:
+    """Сохранить трейлер книги (редактор — любой, автор — своей книги)."""
+    book = get_book(db, book_id)
+    require_book_rights(actor, book, "book.edit", "book.edit_own")
+    if source not in TRAILER_SOURCES:
+        raise ValidationError("Неизвестный источник трейлера")
+    data = {"scenes": clean_trailer(scenes), "source": source}
+    db.execute("UPDATE books SET trailer = ? WHERE id = ?",
+               (json.dumps(data, ensure_ascii=False), book_id))
+    db.commit()
+    return data
+
+
+def delete_trailer(db: sqlite3.Connection, actor: sqlite3.Row | str,
+                   book_id: int) -> None:
+    """Убрать трейлер книги."""
+    book = get_book(db, book_id)
+    require_book_rights(actor, book, "book.edit", "book.edit_own")
+    db.execute("UPDATE books SET trailer = '' WHERE id = ?", (book_id,))
+    db.commit()
+
+
+def get_trailer(db: sqlite3.Connection, book_id: int) -> dict:
+    """Трейлер книги или :class:`NotFoundError`, если его нет."""
+    book = get_book(db, book_id)
+    if not book["trailer"]:
+        raise NotFoundError("У книги нет трейлера")
+    return json.loads(book["trailer"])
+
+
+def trailer_feed(db: sqlite3.Connection, *, page: int = 1,
+                 page_size: int = 10) -> dict[str, Any]:
+    """Лента трейлеров («книжный TikTok»): книги с трейлером, сначала
+    популярные. Каждый элемент — карточка книги + её сцены."""
+    result = _paginate(
+        db, f"SELECT {_LIST_COLUMNS}, b.trailer FROM books b "
+            "WHERE b.trailer <> '' ORDER BY reads DESC, b.id DESC",
+        "SELECT COUNT(*) FROM books b WHERE b.trailer <> ''", [], page,
+        page_size)
+    for item in result["items"]:
+        item["is_paid"] = is_paid_now(item)
+        item["trailer"] = json.loads(item["trailer"])
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Манга и комиксы: страницы-картинки и переводы поверх них
+# ---------------------------------------------------------------------------
+MAX_MANGA_PAGES = 300
+TRANSLATION_LANGS = ("ru", "kk", "ky", "en")
+MAX_BOXES_PER_PAGE = 60
+
+
+def add_manga_page(db: sqlite3.Connection, actor: sqlite3.Row | str,
+                   book_id: int, file_name: str, width: int,
+                   height: int) -> int:
+    """Добавить страницу в конец манги. Возвращает id страницы."""
+    book = get_book(db, book_id)
+    require_book_rights(actor, book, "book.edit", "book.edit_own")
+    if book["kind"] != "manga":
+        raise ValidationError("Страницы-картинки бывают только у манги")
+    if width <= 0 or height <= 0:
+        raise ValidationError("Не удалось определить размер картинки")
+    last = db.execute("SELECT COUNT(*), COALESCE(MAX(idx), 0) FROM "
+                      "manga_pages WHERE book_id = ?", (book_id,)).fetchone()
+    if last[0] >= MAX_MANGA_PAGES:
+        raise ValidationError(f"Не больше {MAX_MANGA_PAGES} страниц")
+    cur = db.execute(
+        "INSERT INTO manga_pages(book_id, idx, file_name, width, height, "
+        "created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (book_id, last[1] + 1, file_name, int(width), int(height),
+         _now_str()))
+    db.commit()
+    return cur.lastrowid
+
+
+def get_manga_page(db: sqlite3.Connection, page_id: int) -> sqlite3.Row:
+    row = db.execute("SELECT * FROM manga_pages WHERE id = ?",
+                     (int(page_id),)).fetchone()
+    if row is None:
+        raise NotFoundError("Страница не найдена")
+    return row
+
+
+def list_manga_pages(db: sqlite3.Connection,
+                     book_id: int) -> list[dict[str, Any]]:
+    """Страницы манги по порядку + языки, на которые уже есть перевод."""
+    get_book(db, book_id)
+    rows = db.execute(
+        "SELECT p.id, p.idx, p.file_name, p.width, p.height, "
+        "(SELECT GROUP_CONCAT(t.lang) FROM page_translations t "
+        "WHERE t.page_id = p.id) AS langs FROM manga_pages p "
+        "WHERE p.book_id = ? ORDER BY p.idx", (book_id,)).fetchall()
+    return [{**dict(r), "langs": sorted((r["langs"] or "").split(",")
+                                        if r["langs"] else [])}
+            for r in rows]
+
+
+def delete_manga_page(db: sqlite3.Connection, actor: sqlite3.Row | str,
+                      page_id: int) -> str:
+    """Удалить страницу и сдвинуть следующие. Возвращает имя файла."""
+    page = get_manga_page(db, page_id)
+    require_book_rights(actor, get_book(db, page["book_id"]), "book.edit",
+                        "book.edit_own")
+    db.execute("DELETE FROM manga_pages WHERE id = ?", (page_id,))
+    # Сдвиг в два шага, чтобы не нарушить UNIQUE(book_id, idx).
+    db.execute("UPDATE manga_pages SET idx = -idx WHERE book_id = ? AND "
+               "idx > ?", (page["book_id"], page["idx"]))
+    db.execute("UPDATE manga_pages SET idx = -idx - 1 WHERE book_id = ? AND "
+               "idx < 0", (page["book_id"],))
+    db.commit()
+    return page["file_name"]
+
+
+def clean_boxes(boxes: Any) -> list[dict[str, Any]]:
+    """Проверить рамки перевода: координаты в процентах 0–100 и текст."""
+    if not isinstance(boxes, list) or len(boxes) > MAX_BOXES_PER_PAGE:
+        raise ValidationError("Неверный список рамок перевода")
+    result = []
+    for b in boxes:
+        try:
+            x, y = float(b["x"]), float(b["y"])
+            w, h = float(b["w"]), float(b["h"])
+        except (KeyError, TypeError, ValueError):
+            raise ValidationError("У рамки нужны x, y, w, h") from None
+        text = " ".join(str(b.get("text", "")).split())[:400]
+        if not text:
+            continue
+        # Рамку, вылезающую за край, подрезаем, а не отвергаем: ИИ
+        # иногда ошибается на пару процентов.
+        x, y = min(max(x, 0.0), 99.0), min(max(y, 0.0), 99.0)
+        w, h = min(max(w, 1.0), 100.0 - x), min(max(h, 1.0), 100.0 - y)
+        # Форма подложки: овал под облачко реплики или прямоугольник
+        # (подписи, вывески, звуки и всё, что нашёл ИИ).
+        shape = "oval" if b.get("shape") == "oval" else "rect"
+        result.append({"x": round(x, 2), "y": round(y, 2), "w": round(w, 2),
+                       "h": round(h, 2), "text": text, "shape": shape,
+                       "src": " ".join(str(b.get("src", "")).split())[:400]})
+    return result
+
+
+def set_page_translation(db: sqlite3.Connection, page_id: int, lang: str,
+                         boxes: Any, source: str = "ai") -> list[dict]:
+    """Сохранить перевод страницы на язык ``lang``."""
+    get_manga_page(db, page_id)
+    if lang not in TRANSLATION_LANGS:
+        raise ValidationError("Перевод возможен на ru, kk, ky, en")
+    clean = clean_boxes(boxes)
+    db.execute("INSERT OR REPLACE INTO page_translations(page_id, lang, "
+               "boxes, source, created_at) VALUES (?, ?, ?, ?, ?)",
+               (page_id, lang, json.dumps(clean, ensure_ascii=False), source,
+                _now_str()))
+    db.commit()
+    return clean
+
+
+def get_page_translation(db: sqlite3.Connection, page_id: int,
+                         lang: str) -> Optional[list[dict]]:
+    row = db.execute("SELECT boxes FROM page_translations WHERE page_id = ? "
+                     "AND lang = ?", (page_id, lang)).fetchone()
+    return json.loads(row["boxes"]) if row else None
+
+
+def book_translations(db: sqlite3.Connection, book_id: int,
+                      lang: str) -> dict[int, list[dict]]:
+    """Все готовые переводы манги на язык: {id страницы: рамки}."""
+    rows = db.execute(
+        "SELECT t.page_id, t.boxes FROM page_translations t JOIN "
+        "manga_pages p ON p.id = t.page_id WHERE p.book_id = ? AND "
+        "t.lang = ?", (book_id, lang)).fetchall()
+    return {r["page_id"]: json.loads(r["boxes"]) for r in rows}

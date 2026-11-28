@@ -182,7 +182,26 @@ function tick() {
 }
 
 /* ---------- Сайт слева: открыть страницу, о которой слайд ---------- */
-function openSite(target) {
+/* «book:Название» / «read:Название» — найти книгу по названию (номера
+ * книг на сервере и на ноутбуке могут отличаться). */
+const resolved = {};
+async function resolveTarget(target) {
+    const m = /^(book|read):(.+)$/.exec(target || "");
+    if (!m) return target;
+    if (!resolved[target]) {
+        try {
+            const d = await api(`/api/books?query=${encodeURIComponent(m[2])}&page_size=5`);
+            const b = d.items.find((x) => x.title === m[2]) || d.items[0];
+            // На странице книги из презентации трейлер играет сразу.
+            resolved[target] = b ? `#/${m[1]}/${b.id}${m[1] === "book" ? "?trailer=1" : ""}`
+                : "#/catalog?query=" + encodeURIComponent(m[2]);
+        } catch { return "#/catalog"; }
+    }
+    return resolved[target];
+}
+
+async function openSite(target) {
+    target = await resolveTarget(target);
     if (!target) return;
     const frame = popup && !popup.closed ? popup : $("#site").contentWindow;
     try {

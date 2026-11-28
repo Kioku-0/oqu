@@ -107,6 +107,7 @@ class BookIn(BaseModel):
     price: int = Field(0, ge=0, le=1_000_000)
     paid_days: Optional[int] = Field(None, ge=1, le=3650)
     tags: list[str] = Field(default_factory=list, max_length=10)
+    kind: str = Field("book", pattern="^(book|manga)$")
 
 
 class BookPatch(BaseModel):
@@ -121,6 +122,7 @@ class BookPatch(BaseModel):
     cover_color: Optional[str] = Field(None, pattern=_COLOR_PATTERN)
     cover_pattern: Optional[str] = Field(None, pattern=_COVER_PATTERN)
     tags: Optional[list[str]] = Field(None, max_length=10)
+    kind: Optional[str] = Field(None, pattern="^(book|manga)$")
 
 
 class BookOut(BaseModel):
@@ -144,6 +146,9 @@ class BookOut(BaseModel):
     rating: Optional[float] = None
     rating_count: int = 0
     reads: int = 0
+    kind: str = "book"
+    has_trailer: bool = False
+    pages: int = 0
     created_at: str
 
 
@@ -302,3 +307,39 @@ class PresentOut(BaseModel):
     elapsed: float
     rev: int
     server_time: float
+
+
+class TrailerScene(BaseModel):
+    scene: str = Field(..., max_length=20, examples=["rider"])
+    text: str = Field(..., min_length=1, max_length=160)
+
+
+class TrailerIn(BaseModel):
+    scenes: list[TrailerScene] = Field(..., min_length=3, max_length=8)
+
+
+class TrailerOut(BaseModel):
+    scenes: list[TrailerScene]
+    source: str
+
+
+class TranslateIn(BaseModel):
+    lang: str = Field(..., pattern="^(ru|kk|ky|en)$", examples=["ru"])
+
+
+class TranslationBox(BaseModel):
+    x: float
+    y: float
+    w: float
+    h: float
+    text: str
+    src: str = ""
+
+
+class MangaPageOut(BaseModel):
+    id: int
+    idx: int
+    url: str
+    width: int
+    height: int
+    langs: list[str]

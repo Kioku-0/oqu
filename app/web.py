@@ -39,7 +39,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
-from app import __version__, i18n, schemas, security, service
+from app import __version__, ai, i18n, schemas, security, service
 from app.db import connect
 
 # --- Конфигурация (всё, что зависит от сервера, — через окружение) ---------
@@ -91,6 +91,10 @@ OPENAPI_TAGS = [
                                          "студенты."},
     {"name": "Журнал", "description": "Журнал действий (усложнение)."},
     {"name": "Игра", "description": "Мини-игра «Парақ»: прогресс и рекорды."},
+    {"name": "Трейлеры", "description": "Анимированные трейлеры книг, "
+                                        "лента, генерация ИИ."},
+    {"name": "Манга", "description": "Страницы манги и ИИ-перевод "
+                                     "с любого языка."},
     {"name": "Новости", "description": "Обновления, конкурсы, марафоны."},
     {"name": "Презентация", "description": "Пульт живой презентации "
                                            "(только владелец)."},
@@ -210,6 +214,7 @@ _ERROR_STATUS = (
     (service.PermissionDeniedError, status.HTTP_403_FORBIDDEN, "forbidden"),
     (service.NotFoundError, status.HTTP_404_NOT_FOUND, "not_found"),
     (service.ConflictError, status.HTTP_409_CONFLICT, "conflict"),
+    (service.AIUnavailableError, status.HTTP_503_SERVICE_UNAVAILABLE, "ai"),
 )
 
 
@@ -616,7 +621,7 @@ def create_book(data: schemas.BookIn, request: Request,
         external_url=data.external_url, cover_color=data.cover_color,
         cover_pattern=data.cover_pattern,
         is_paid=data.is_paid, price=data.price, paid_days=data.paid_days,
-        tags=data.tags, added_by=user["id"])
+        tags=data.tags, added_by=user["id"], kind=data.kind)
     audit(db, request, user["id"], "book_add", f"#{bid} «{data.title}»")
     return service.get_book_details(db, bid)
 
@@ -907,6 +912,207 @@ def game_reset(request: Request, user: sqlite3.Row = Depends(require_user),
          summary="Рекорды игры (все игроки на равных)")
 def game_top(db: sqlite3.Connection = Depends(get_db)):
     return service.game_leaderboard(db)
+
+
+# ===========================================================================
+# Трейлеры книг: анимированная «книга-история» при открытии + лента
+# ===========================================================================
+@app.get("/api/trailers", tags=["Трейлеры"],
+         summary="Лента трейлеров (книжный TikTok), пагинация")
+def trailers_feed(page: int = Query(1, ge=1),
+                  page_size: int = Query(10, ge=1, le=30),
+                  db: sqlite3.Connection = Depends(get_db)):
+    return service.trailer_feed(db, page=page, page_size=page_size)
+
+
+@app.get("/api/books/{book_id}/trailer", response_model=schemas.TrailerOut,
+         tags=["Трейлеры"], summary="Трейлер книги")
+def book_trailer(book_id: int, db: sqlite3.Connection = Depends(get_db)):
+    return service.get_trailer(db, book_id)
+
+
+@app.put("/api/books/{book_id}/trailer", response_model=schemas.TrailerOut,
+         tags=["Трейлеры"], summary="Сохранить трейлер (автор, редактор)")
+def save_trailer(book_id: int, data: schemas.TrailerIn, request: Request,
+                 user: sqlite3.Row = Depends(require_user),
+                 db: sqlite3.Connection = Depends(get_db)):
+    result = service.set_trailer(db, user, book_id,
+                                 [s.model_dump() for s in data.scenes])
+    audit(db, request, user["id"], "trailer_save", f"#{book_id}")
+    return result
+
+
+@app.delete("/api/books/{book_id}/trailer", response_model=schemas.Message,
+            tags=["Трейлеры"], summary="Удалить трейлер")
+def remove_trailer(book_id: int, request: Request,
+                   user: sqlite3.Row = Depends(require_user),
+                   db: sqlite3.Connection = Depends(get_db)):
+    service.delete_trailer(db, user, book_id)
+    audit(db, request, user["id"], "trailer_delete", f"#{book_id}")
+    return {"detail": "Трейлер удалён"}
+
+
+@app.post("/api/books/{book_id}/trailer/generate",
+          response_model=schemas.TrailerOut, tags=["Трейлеры"],
+          summary="Сгенерировать трейлер ИИ (Claude) и сохранить")
+def generate_trailer(book_id: int, request: Request,
+                     user: sqlite3.Row = Depends(require_user),
+                     db: sqlite3.Connection = Depends(get_db)):
+    book = service.get_book(db, book_id)
+    service.require_book_rights(user, book, "book.edit", "book.edit_own")
+    _check_ai_rate(user["id"])
+    scenes = ai.generate_trailer(dict(book), book["content"] or "")
+    result = service.set_trailer(db, user, book_id, scenes, source="ai")
+    audit(db, request, user["id"], "trailer_ai", f"#{book_id}")
+    return result
+
+
+@app.get("/api/ai/status", tags=["Трейлеры"],
+         summary="Включены ли ИИ-функции на сервере")
+def ai_status():
+    return {"enabled": ai.is_configured(), "model": ai.MODEL}
+
+
+# ===========================================================================
+# Манга и комиксы: страницы-картинки и автоперевод с любого языка
+# ===========================================================================
+MAX_MANGA_PAGE_BYTES = 8 * 1024 * 1024
+AI_RATE_LIMIT, AI_RATE_WINDOW = 40, 3600     # запросов к ИИ в час на человека
+_ai_hits: dict[int, deque] = defaultdict(deque)
+
+
+def _check_ai_rate(user_id: int) -> None:
+    """ИИ стоит денег: не больше AI_RATE_LIMIT запросов в час от одного
+    пользователя (готовые переводы отдаются без запроса к ИИ)."""
+    now = time.monotonic()
+    hits = _ai_hits[user_id]
+    while hits and now - hits[0] > AI_RATE_WINDOW:
+        hits.popleft()
+    if len(hits) >= AI_RATE_LIMIT:
+        raise service.AccountLockedError(
+            "Слишком много запросов к ИИ, попробуйте позже",
+            retry_after=int(AI_RATE_WINDOW - (now - hits[0])) + 1)
+    hits.append(now)
+
+
+def _image_size(data: bytes) -> tuple[int, int]:
+    """Ширина и высота PNG/JPEG/WebP по заголовку файла (без Pillow)."""
+    if data.startswith(b"\x89PNG"):
+        return (int.from_bytes(data[16:20], "big"),
+                int.from_bytes(data[20:24], "big"))
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        chunk = data[12:16]
+        if chunk == b"VP8X":
+            return (int.from_bytes(data[24:27], "little") + 1,
+                    int.from_bytes(data[27:30], "little") + 1)
+        if chunk == b"VP8L":
+            bits = int.from_bytes(data[21:25], "little")
+            return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+        if chunk == b"VP8 ":
+            return (int.from_bytes(data[26:28], "little") & 0x3FFF,
+                    int.from_bytes(data[28:30], "little") & 0x3FFF)
+    if data.startswith(b"\xff\xd8"):
+        i = 2
+        while i + 9 < len(data):
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            marker = data[i + 1]
+            length = int.from_bytes(data[i + 2:i + 4], "big")
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9,
+                          0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                return (int.from_bytes(data[i + 7:i + 9], "big"),
+                        int.from_bytes(data[i + 5:i + 7], "big"))
+            i += 2 + length
+    return 0, 0
+
+
+def _page_out(page: dict) -> dict:
+    return {**page, "url": f"/media/{page['file_name']}"}
+
+
+@app.get("/api/books/{book_id}/pages", response_model=list[
+         schemas.MangaPageOut], tags=["Манга"],
+         summary="Страницы манги (с учётом прав доступа)")
+def manga_pages(book_id: int,
+                user: Optional[sqlite3.Row] = Depends(get_current_user),
+                db: sqlite3.Connection = Depends(get_db)):
+    _readable_book(db, user, book_id)
+    return [_page_out(p) for p in service.list_manga_pages(db, book_id)]
+
+
+@app.post("/api/books/{book_id}/pages", response_model=schemas.MangaPageOut,
+          status_code=201, tags=["Манга"],
+          summary="Загрузить страницу манги (в конец)")
+async def upload_manga_page(book_id: int, request: Request,
+                            file: UploadFile = File(...),
+                            user: sqlite3.Row = Depends(require_user),
+                            db: sqlite3.Connection = Depends(get_db)):
+    book = service.get_book(db, book_id)
+    service.require_book_rights(user, book, "book.edit", "book.edit_own")
+    data = await _read_limited(file, MAX_MANGA_PAGE_BYTES)
+    ext = _image_ext(data)
+    width, height = _image_size(data)
+    name = _save_upload("images", data, ext)
+    try:
+        page_id = service.add_manga_page(db, user, book_id, name, width,
+                                         height)
+    except service.ServiceError:
+        _remove_upload("images", name)
+        raise
+    audit(db, request, user["id"], "manga_page", f"#{book_id}")
+    page = next(p for p in service.list_manga_pages(db, book_id)
+                if p["id"] == page_id)
+    return _page_out(page)
+
+
+@app.delete("/api/manga/pages/{page_id}", response_model=schemas.Message,
+            tags=["Манга"], summary="Удалить страницу манги")
+def delete_manga_page(page_id: int, request: Request,
+                      user: sqlite3.Row = Depends(require_user),
+                      db: sqlite3.Connection = Depends(get_db)):
+    name = service.delete_manga_page(db, user, page_id)
+    _remove_upload("images", name)
+    audit(db, request, user["id"], "manga_page_delete", f"#{page_id}")
+    return {"detail": "Страница удалена"}
+
+
+@app.get("/api/books/{book_id}/translations", tags=["Манга"],
+         summary="Готовые переводы всех страниц на язык")
+def manga_translations(book_id: int,
+                       lang: str = Query(..., pattern="^(ru|kk|ky|en)$"),
+                       user: Optional[sqlite3.Row] = Depends(
+                           get_current_user),
+                       db: sqlite3.Connection = Depends(get_db)):
+    _readable_book(db, user, book_id)
+    return {str(k): v for k, v in
+            service.book_translations(db, book_id, lang).items()}
+
+
+@app.post("/api/manga/pages/{page_id}/translate",
+          response_model=list[schemas.TranslationBox], tags=["Манга"],
+          summary="Перевести страницу ИИ (Claude) с любого языка")
+def translate_manga_page(page_id: int, data: schemas.TranslateIn,
+                         request: Request,
+                         user: sqlite3.Row = Depends(require_user),
+                         db: sqlite3.Connection = Depends(get_db)):
+    page = service.get_manga_page(db, page_id)
+    _readable_book(db, user, page["book_id"])
+    ready = service.get_page_translation(db, page_id, data.lang)
+    if ready is not None:
+        return ready            # перевод уже есть — ИИ не нужен
+    _check_ai_rate(user["id"])
+    path = os.path.join(UPLOAD_DIR, "images",
+                        os.path.basename(page["file_name"]))
+    with open(path, "rb") as fh:
+        image = fh.read()
+    media_type = {".jpg": "image/jpeg", ".png": "image/png",
+                  ".webp": "image/webp"}[_image_ext(image)]
+    boxes = ai.translate_page(image, media_type, data.lang)
+    result = service.set_page_translation(db, page_id, data.lang, boxes)
+    audit(db, request, user["id"], "manga_translate",
+          f"страница #{page_id} -> {data.lang}")
+    return result
 
 
 # ===========================================================================

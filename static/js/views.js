@@ -57,6 +57,9 @@ route(/^\/$/, async (view) => {
       <section class="section" id="home-news-sec"><div class="section-head"><h2>${esc(t("news.title"))}</h2><a href="#/news">${esc(t("common.all"))} →</a></div>
         <div class="news-grid" id="home-news">${'<div class="news-card skeleton" style="height:150px"></div>'.repeat(3)}</div></section>
       <section class="section"><div class="stat-row" id="home-stats">${'<div class="stat skeleton" style="height:84px"></div>'.repeat(4)}</div></section>
+      <section class="section"><a class="game-teaser trailer-teaser" href="#/trailers"><span class="gt-ic">${icon("play")}</span>
+        <span class="gt-txt"><b>${esc(t("media.feed"))}</b><small>${esc(t("media.teaser"))}</small></span>
+        <span class="btn primary sm">${esc(t("media.watch"))} →</span></a></section>
       <section class="section"><a class="game-teaser" href="#/game"><span class="gt-ic">${icon("game")}</span>
         <span class="gt-txt"><b>${esc(t("game.title"))}</b><small>${esc(t("game.teaser"))}</small></span>
         <span class="btn primary sm">${esc(t("game.play"))} →</span></a></section>
@@ -630,18 +633,21 @@ function pullBook(spine, b, anim = "pull") {
 /* ======================================================================
    Карточка книги
    ====================================================================== */
-route(/^\/book\/(\d+)$/, async (view, [id]) => {
+route(/^\/book\/(\d+)$/, async (view, [id], params) => {
     view.innerHTML = `<div class="book-page"><div><div class="skeleton sk-cover"></div></div><div><div class="skeleton" style="height:40px;width:60%"></div>
         <div class="skeleton sk-line" style="width:30%"></div><div class="skeleton" style="height:120px;margin-top:24px"></div></div></div>`;
     const b = await api(`/api/books/${id}`);
     setTitle(b.title);
     const u = Oqu.state.user;
     const readBtns = [];
-    if (b.can_read) {
+    if (b.can_read && b.kind === "manga") {
+        readBtns.push(`<a class="btn primary lg block" href="#/read/${b.id}">${icon("book")}${esc(b.position ? t("media.continue_page", { n: b.position }) : t("media.read_manga"))}</a>`);
+    } else if (b.can_read) {
         const label = b.position ? t("book.continue_at", { p: progressLabel(b) }) : t("book.read");
         if (b.has_text || !b.has_file) readBtns.push(`<a class="btn primary lg block" href="#/read/${b.id}">${icon("book")}${esc(label)}</a>`);
         if (b.has_file) readBtns.push(`<a class="btn ${b.has_text ? "" : "primary"} lg block" href="#/read/${b.id}?mode=pdf">${icon("pdf")}${esc(t("book.read_scan"))}</a>`);
     }
+    readBtns.push(Oqu.media.bookPageHooks(b, params.get("trailer") === "1"));
     view.innerHTML = `<div class="book-page">
       <aside class="book-aside"><div class="cover-stand">${cover(b)}<span class="mini-plank" aria-hidden="true"></span></div>
         <div style="display:flex;flex-direction:column;gap:10px">${readBtns.join("")}
@@ -661,7 +667,8 @@ route(/^\/book\/(\d+)$/, async (view, [id]) => {
         <div class="facts">
           <div class="fact"><small>${esc(t("book.year"))}</small><b>${b.year ?? "—"}</b></div>
           <div class="fact"><small>${esc(t("book.language"))}</small><b>${esc(t(LANG_NAMES[b.language]))}</b></div>
-          <div class="fact"><small>${esc(t("book.format"))}</small><b>${[b.has_text ? t("book.fmt_text") : "", b.has_file ? "PDF" : ""].filter(Boolean).join(" + ") || "—"}</b></div>
+          <div class="fact"><small>${esc(t("book.format"))}</small><b>${b.kind === "manga" ? esc(t("media.manga_pages", { n: b.pages }))
+            : [b.has_text ? t("book.fmt_text") : "", b.has_file ? "PDF" : ""].filter(Boolean).join(" + ") || "—"}</b></div>
           <div class="fact"><small>${esc(t("book.reads"))}</small><b>${fmtNum(b.reads)}</b></div>
         </div>
         ${b.description ? `<h2>${esc(t("book.about"))}</h2><p class="description">${esc(b.description)}</p>` : ""}
@@ -792,6 +799,9 @@ window.addEventListener("hashchange", () => {
 });
 
 route(/^\/read\/(\d+)$/, async (view, [id], params) => {
+    // Манга открывается в своей читалке (страницы-картинки + перевод).
+    const meta = await api(`/api/books/${id}`);
+    if (meta.kind === "manga") return Oqu.media.mangaReader(view, meta, params);
     let b;
     try {
         b = await api(`/api/books/${id}/read`);
@@ -806,6 +816,7 @@ route(/^\/read\/(\d+)$/, async (view, [id], params) => {
         return;
     }
     setTitle(b.title);
+    Oqu.media.openingAnimation(meta);
     const mode = params.get("mode") === "pdf" || (!b.content && b.has_file) ? "pdf" : "text";
     const prefs = store.get("reader", { fs: 19, theme: "", width: 680 });
     const u = Oqu.state.user;
@@ -1153,6 +1164,9 @@ async function bookEditor(view, book) {
               <label class="field"><span>${esc(t("book.genre"))}</span><input class="input" name="genre" list="genre-list" maxlength="60" value="${esc(b.genre)}">
                 <datalist id="genre-list">${genres.map((g) => `<option value="${esc(g.name)}">`).join("")}</datalist></label>
             </div>
+            <label class="field"><span>${esc(t("media.kind"))}</span><select class="select" name="kind">${["book", "manga"].map((k) =>
+              `<option value="${k}" ${(b.kind || "book") === k ? "selected" : ""}>${esc(t("media.kind_" + k))}</option>`).join("")}</select>
+              <small class="hint">${esc(t("media.kind_hint"))}</small></label>
             <label class="field"><span>${esc(t("book.about"))}</span><textarea class="textarea" name="description" maxlength="5000">${esc(b.description)}</textarea></label>
             <div class="field"><span>${esc(t("filter.tags"))}</span><div class="tags-input" id="tags-box"><input id="tag-in" maxlength="40" placeholder="${esc(t("editor.tag_ph"))}"></div>
               <small class="hint">${esc(t("editor.tag_hint"))}</small></div>
@@ -1176,6 +1190,7 @@ async function bookEditor(view, book) {
             </div>
             ${book && book.has_file ? `<button type="button" class="btn sm danger" id="pdf-del" style="margin-top:10px">${icon("trash")}${esc(t("editor.pdf_delete"))}</button>` : ""}
           </div>
+          ${Oqu.media.editorHtml(book)}
           ${isNew ? `<div class="card section"><h2>${esc(t("editor.access"))}</h2>
             <label class="check"><input type="checkbox" name="is_paid"><span>${esc(t("editor.paid"))}</span></label>
             <div class="row hidden" id="paid-box" style="margin-top:12px">
@@ -1283,6 +1298,7 @@ async function bookEditor(view, book) {
         catch (err) { toastError(err); }
     });
     preview();
+    Oqu.media.bindEditor(book).catch(() => {});
 
     form.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -1295,7 +1311,7 @@ async function bookEditor(view, book) {
             title: form.title.value.trim(), author: form.author.value.trim(), year: form.year.value ? Number(form.year.value) : null,
             language: form.language.value, genre: form.genre.value.trim().toLowerCase(), description: form.description.value,
             content: form.content.value, external_url: form.external_url.value.trim(), cover_color: form.cover_color.value,
-            cover_pattern: form.cover_pattern.value, tags,
+            cover_pattern: form.cover_pattern.value, tags, kind: form.kind.value,
         };
         if (isNew) {
             data.is_paid = form.is_paid.checked;
@@ -1318,7 +1334,8 @@ async function bookEditor(view, book) {
                 await api(`/api/books/${saved.id}/cover`, { method: "POST", form: fd });
             }
             toast(t(isNew ? "editor.created" : "common.saved"), "ok");
-            location.hash = "#/book/" + saved.id;
+            // Новую мангу сразу открываем в редакторе: там загружаются страницы.
+            location.hash = isNew && data.kind === "manga" ? `#/books/${saved.id}/edit` : "#/book/" + saved.id;
         } catch (ex) {
             btn.disabled = false;
             btn.textContent = t(isNew ? "editor.publish" : "common.save");

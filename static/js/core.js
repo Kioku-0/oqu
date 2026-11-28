@@ -366,6 +366,7 @@ function navItems() {
     const items = [
         { href: "#/", icon: "home", key: "nav.home", match: /^#\/?$/ },
         { href: "#/catalog", icon: "grid", key: "nav.catalog", match: /^#\/catalog/ },
+        { href: "#/trailers", icon: "play", key: "nav.trailers", match: /^#\/trailers/ },
         { href: "#/bookcase", icon: "case", key: "nav.bookcase", match: /^#\/bookcase/ },
         { href: "#/game", icon: "game", key: "nav.game", match: /^#\/game/ },
         { href: "#/shelf", icon: "bookmark", key: "nav.shelf", match: /^#\/shelf/, auth: true },
@@ -387,7 +388,7 @@ function renderChrome() {
     const tabs = [
         { href: "#/", icon: "home", key: "nav.home", match: /^#\/?$/ },
         { href: "#/catalog", icon: "grid", key: "nav.catalog", match: /^#\/catalog/ },
-        { href: "#/bookcase", icon: "case", key: "nav.bookcase", match: /^#\/bookcase/ },
+        { href: "#/trailers", icon: "play", key: "nav.trailers", match: /^#\/trailers/ },
         { href: Oqu.state.user ? "#/shelf" : "#/stats", icon: Oqu.state.user ? "bookmark" : "chart",
           key: Oqu.state.user ? "nav.shelf" : "nav.stats", match: Oqu.state.user ? /^#\/shelf/ : /^#\/stats/ },
         { href: "#/game", icon: "game", key: "nav.game", match: /^#\/game/ },

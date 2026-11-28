@@ -204,6 +204,29 @@ CREATE TABLE IF NOT EXISTS game_saves (
     CHECK (pages >= 0 AND pages_total >= pages AND clicks >= 0)
 );
 
+-- Манга и комиксы: страницы-картинки по порядку ---------------------------
+CREATE TABLE IF NOT EXISTS manga_pages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id    INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    idx        INTEGER NOT NULL,                      -- номер страницы с 1
+    file_name  TEXT    NOT NULL UNIQUE,
+    width      INTEGER NOT NULL CHECK (width > 0),
+    height     INTEGER NOT NULL CHECK (height > 0),
+    created_at TEXT    NOT NULL,
+    UNIQUE (book_id, idx)
+);
+
+-- Перевод страницы манги: рамки с текстом поверх картинки (в процентах) ---
+CREATE TABLE IF NOT EXISTS page_translations (
+    page_id    INTEGER NOT NULL REFERENCES manga_pages(id) ON DELETE CASCADE,
+    lang       TEXT    NOT NULL,
+    boxes      TEXT    NOT NULL,                     -- JSON-список рамок
+    source     TEXT    NOT NULL DEFAULT 'ai'
+               CHECK (source IN ('ai', 'manual', 'demo')),
+    created_at TEXT    NOT NULL,
+    PRIMARY KEY (page_id, lang)
+);
+
 -- Новости на главной: обновления сайта, конкурсы, марафоны, события ---------
 CREATE TABLE IF NOT EXISTS news (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -240,6 +263,7 @@ CREATE INDEX IF NOT EXISTS idx_bookmarks     ON bookmarks(user_id, book_id);
 CREATE INDEX IF NOT EXISTS idx_book_images   ON book_images(book_id);
 CREATE INDEX IF NOT EXISTS idx_game_total    ON game_saves(pages_total);
 CREATE INDEX IF NOT EXISTS idx_news_created  ON news(created_at);
+CREATE INDEX IF NOT EXISTS idx_manga_pages   ON manga_pages(book_id, idx);
 """
 
 # Столбцы, добавленные после первой версии. Если база создана старой версией
@@ -253,6 +277,8 @@ _ADDED_COLUMNS = (
     ("books", "price", "INTEGER NOT NULL DEFAULT 0"),
     ("books", "cover_pattern", "TEXT NOT NULL DEFAULT 'auto'"),
     ("books", "cover_image", "TEXT"),          # картинка обложки (имя файла)
+    ("books", "kind", "TEXT NOT NULL DEFAULT 'book'"),   # book | manga
+    ("books", "trailer", "TEXT NOT NULL DEFAULT ''"),    # трейлер (JSON)
     ("comments", "edited_at", "TEXT"),
     ("unban_requests", "reviewed_by", "INTEGER"),
 )

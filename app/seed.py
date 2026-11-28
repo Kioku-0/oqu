@@ -382,6 +382,7 @@ def seed() -> None:
                    (when.strftime(service.DATETIME_FMT), cid))
     db.commit()
     add_demo_news(db, editor)
+    add_demo_media(db, editor)
     service.log_action(db, owner["id"], "seed", "демо-данные созданы")
 
     count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -762,6 +763,95 @@ def add_demo_news(db, author) -> int:
     return len(items)
 
 
+# Книги, которые удобно показывать на защите: у них трейлер, манга с
+# переводом, платная книга, книга из МегаПро. Помечаются тегом «демо».
+DEMO_TAG = "демо"
+DEMO_EXTRA = ("Как стать амбассадором ИИ", "Халық-сахналық би негіздері",
+              "Основы Python: от переменной до REST API")
+
+
+def add_demo_media(db, author) -> dict:
+    """Трейлеры демо-книг, демо-манга с переводами и тег «демо».
+
+    Повторный запуск ничего не дублирует. Возвращает, что добавлено.
+    """
+    done = {"trailers": 0, "manga": 0, "tagged": 0}
+    by_title = {r["title"]: r["id"] for r in
+                db.execute("SELECT id, title FROM books")}
+    for title, scenes in _demo_json("trailers.json").items():
+        bid = by_title.get(title)
+        if bid and not service.get_book(db, bid)["trailer"]:
+            service.set_trailer(db, "owner", bid, scenes, source="demo")
+            done["trailers"] += 1
+
+    info = _demo_json(os.path.join("manga", "manga.json"))
+    manga_id = by_title.get(info["title"])
+    if manga_id is None:
+        manga_id = service.add_book(
+            db, "editor", info["title"], info["author"], year=2026,
+            genre="манга", language="ru", kind="manga",
+            description="Короткая демо-манга команды «Оқу» (оригинал на "
+                        "японском: «" + info["original_title"] + "»). "
+                        "Школьница Ая находит в библиотеке книгу, которой "
+                        "там не было, и говорящего кота. Выберите язык "
+                        "перевода, чтобы прочитать на своём языке.",
+            cover_color="#3d3d3d", cover_pattern="dots",
+            tags=["манга", "перевод", DEMO_TAG], added_by=author["id"])
+        folder = os.path.join(os.path.dirname(DB_PATH), "uploads", "images")
+        os.makedirs(folder, exist_ok=True)
+        for page in info["pages"]:
+            name = secrets.token_hex(16) + ".png"
+            src = os.path.join(DEMO_DIR, "manga", page["file"])
+            shutil.copyfile(src, os.path.join(folder, name))
+            with open(src, "rb") as fh:
+                head = fh.read(24)
+            width = int.from_bytes(head[16:20], "big")
+            height = int.from_bytes(head[20:24], "big")
+            pid = service.add_manga_page(db, "editor", manga_id, name, width,
+                                         height)
+            for lang in ("ru", "kk", "en"):
+                boxes = [{**{k: b[k] for k in ("x", "y", "w", "h", "src",
+                                               "shape")},
+                          "text": b[lang]} for b in page["boxes"]]
+                service.set_page_translation(db, pid, lang, boxes, "demo")
+        captions = [
+            ("books", "После уроков Ая находит в библиотеке книгу, которой "
+                      "там никогда не было."),
+            ("rabbit", "А на полке сидит кот в очках. И он знает её имя."),
+            ("rider", "Одна страница — и вокруг степь, ветер и всадник."),
+            ("space", "Оригинал на японском. Перевод — в один клик. "
+                      "Листайте!"),
+        ]
+        service.set_trailer(db, "owner", manga_id,
+                            [{"scene": s, "text": c} for s, c in captions],
+                            source="demo")
+        by_title[info["title"]] = manga_id
+        done["manga"] = 1
+
+    for title in [*_demo_json("trailers.json"), *DEMO_EXTRA, info["title"]]:
+        bid = by_title.get(title)
+        if bid and DEMO_TAG not in service.book_tags(db, bid):
+            service.tag_book(db, bid, DEMO_TAG)
+            done["tagged"] += 1
+    return done
+
+
+def seed_media() -> None:
+    """Трейлеры, манга и тег «демо» в уже наполненную базу (сервер):
+    ``python -m app.seed --media``."""
+    db = connect(DB_PATH)
+    try:
+        author = db.execute("SELECT * FROM users WHERE role IN ('owner', "
+                            "'editor') ORDER BY role = 'editor' DESC, id "
+                            "LIMIT 1").fetchone()
+        if author is None:
+            print("Нет владельца или редактора — сначала создайте базу.")
+            return
+        print("Добавлено:", add_demo_media(db, author))
+    finally:
+        db.close()
+
+
 def seed_news() -> None:
     """Добавить демо-новости в уже наполненную базу (например, на сервере):
     ``python -m app.seed --news``."""
@@ -783,6 +873,8 @@ def seed_news() -> None:
 if __name__ == "__main__":
     if "--news" in sys.argv:
         seed_news()
+    elif "--media" in sys.argv:
+        seed_media()
     elif "--create-owner" in sys.argv:
         create_owner()
     elif "--staff-password" in sys.argv:

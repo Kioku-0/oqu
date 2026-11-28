@@ -106,7 +106,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -.01em
 .slide::after { content: ""; position: absolute; right: 0; bottom: 0; width: 220px; height: 220px; pointer-events: none;
     background: radial-gradient(circle at 100% 100%, var(--gold-soft), transparent 70%); }
 .slide.enter { animation: enter .35s ease-out; }
-@keyframes enter { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+@keyframes enter { from { transform: translateX(18px); } to { transform: none; } }
 .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .72em; font-weight: 700; color: var(--who); }
 .slide h1 { font-size: 2em; line-height: 1.12; max-width: 22ch; }
 .slide h1::after { content: ""; display: block; width: 64px; height: 4px; border-radius: 2px; background: var(--gold); margin-top: .45em; }
