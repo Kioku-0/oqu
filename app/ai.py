@@ -70,11 +70,15 @@ def model_name() -> str:
                                                                "")
 
 
-def _ask(parts: list[Part], system: str, max_tokens: int) -> str:
-    """Один запрос к ИИ; возвращает текст ответа (в нём JSON)."""
+def _ask(parts: list[Part], system: str, max_tokens: int,
+         schema: dict | None = None) -> str:
+    """Один запрос к ИИ; возвращает текст ответа (в нём JSON).
+
+    ``schema`` — схема ответа для Gemini (structured output): с ней модель
+    не может прислать сломанный JSON."""
     which = provider()
     if which == "gemini":
-        return _ask_gemini(parts, system, max_tokens)
+        return _ask_gemini(parts, system, max_tokens, schema)
     if which == "claude":
         return _ask_claude(parts, system, max_tokens)
     raise service.AIUnavailableError(
@@ -83,7 +87,8 @@ def _ask(parts: list[Part], system: str, max_tokens: int) -> str:
 
 
 # --- Google Gemini (бесплатный тариф) ----------------------------------------
-def _ask_gemini(parts: list[Part], system: str, max_tokens: int) -> str:
+def _ask_gemini(parts: list[Part], system: str, max_tokens: int,
+                schema: dict | None = None) -> str:
     body = {
         "system_instruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [
@@ -94,6 +99,8 @@ def _ask_gemini(parts: list[Part], system: str, max_tokens: int) -> str:
                              "maxOutputTokens": max_tokens,
                              "temperature": 0.5},
     }
+    if schema:
+        body["generationConfig"]["responseSchema"] = schema
     request = urllib.request.Request(
         GEMINI_URL.format(model=GEMINI_MODEL),
         data=json.dumps(body).encode("utf-8"), method="POST",
@@ -160,8 +167,50 @@ def _json(text: str) -> Any:
     try:
         return json.JSONDecoder().raw_decode(text[start:])[0]
     except json.JSONDecodeError:
+        salvaged = _salvage_boxes(text)
+        if salvaged:
+            return {"boxes": salvaged}
         raise service.AIUnavailableError(
             "ИИ вернул ответ не в том формате") from None
+
+
+_STR = r'"((?:[^"\\]|\\.)*)"'
+_BOX_RE = re.compile(
+    r'"(?:box_2d|bbox|box)"\s*:\s*\[([^\]]*)\]'
+    r'(?:(?!"(?:box_2d|bbox|box)")[\s\S])*?"original"\s*:\s*' + _STR +
+    r'(?:(?!"(?:box_2d|bbox|box)")[\s\S])*?"translation"\s*:\s*' + _STR)
+_SHAPE_RE = re.compile(r'"shape"\s*:\s*"(oval|rect)"')
+
+
+def _salvage_boxes(text: str) -> list[dict]:
+    """Запасной разбор, если модель прислала сломанный JSON (лишняя
+    скобка и т. п.): вытаскиваем рамки и реплики регулярным выражением."""
+    result = []
+    for m in _BOX_RE.finditer(text):
+        try:
+            coords = [float(v) for v in m.group(1).split(",")]
+            original = json.loads(f'"{m.group(2)}"')
+            translation = json.loads(f'"{m.group(3)}"')
+        except ValueError:
+            continue
+        shape = _SHAPE_RE.search(m.group(0))
+        result.append({"box_2d": coords, "original": original,
+                       "translation": translation,
+                       "shape": shape.group(1) if shape else "rect"})
+    return result
+
+
+# Схемы ответов для Gemini (structured output, формат OpenAPI).
+_BOXES_SCHEMA = {
+    "type": "OBJECT", "required": ["boxes"],
+    "properties": {"boxes": {"type": "ARRAY", "items": {
+        "type": "OBJECT",
+        "required": ["box_2d", "shape", "original", "translation"],
+        "properties": {
+            "box_2d": {"type": "ARRAY", "items": {"type": "INTEGER"}},
+            "shape": {"type": "STRING", "enum": ["oval", "rect"]},
+            "original": {"type": "STRING"},
+            "translation": {"type": "STRING"}}}}}}
 
 
 # --- Трейлер книги -----------------------------------------------------------
@@ -206,7 +255,13 @@ def generate_trailer(book: dict[str, Any], sample: str) -> list[dict]:
         f"{service.MAX_SCENE_TEXT} characters. The last page invites the "
         "reader to open the book. Return exactly: "
         '{"scenes": [{"scene": "<id>", "text": "<caption>"}]}')
-    data = _json(_ask([("text", prompt)], TRAILER_SYSTEM, 4000))
+    schema = {"type": "OBJECT", "required": ["scenes"], "properties": {
+        "scenes": {"type": "ARRAY", "items": {
+            "type": "OBJECT", "required": ["scene", "text"],
+            "properties": {
+                "scene": {"type": "STRING", "enum": list(SCENE_HINTS)},
+                "text": {"type": "STRING"}}}}}}
+    data = _json(_ask([("text", prompt)], TRAILER_SYSTEM, 4000, schema))
     scenes = data.get("scenes") if isinstance(data, dict) else data
     if isinstance(scenes, list):
         # Модель могла написать подпись чуть длиннее лимита — подрежем.
@@ -283,7 +338,8 @@ def translate_page(image: bytes, media_type: str, lang: str) -> list[dict]:
         '"original": "<original text>", '
         f'"translation": "<text in {LANG_NAMES[lang]}>"}}]}}')
     data = _json(_ask([("image", image, media_type), ("text", prompt)],
-                      TRANSLATE_SYSTEM, 8000))
+                      TRANSLATE_SYSTEM, 8000,
+                      _BOXES_SCHEMA if gemini else None))
     boxes = data.get("boxes") if isinstance(data, dict) else data
     if not isinstance(boxes, list):
         raise service.AIUnavailableError("ИИ вернул ответ не в том формате")

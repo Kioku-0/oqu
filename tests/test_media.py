@@ -235,6 +235,39 @@ def test_gemini_answer_variants(monkeypatch):
     assert "Kazakh" in prompt and "қазақ тілі" in prompt
 
 
+BROKEN_GEMINI = """[
+  {
+    "box_2d": [
+      78, 137, 252, 264],
+      "shape": "oval",
+      "original": "ね、猫が\\nしゃべった",
+      "translation": "Мышык\\nсүйлөдү!?"
+    }
+  },
+  {
+    "box_2d": [484, 558, 600, 694], "shape": "rect",
+      "original": "ごらん。", "translation": "Ачып көр."
+    }
+  }
+]"""
+
+
+def test_broken_gemini_json_is_salvaged():
+    # Настоящий ответ Gemini Flash-Lite с лишними скобками «}».
+    boxes = ai._json(BROKEN_GEMINI)["boxes"]
+    assert [(b["translation"], b["shape"]) for b in boxes] == [
+        ("Мышык\nсүйлөдү!?", "oval"), ("Ачып көр.", "rect")]
+    assert boxes[0]["box_2d"] == [78.0, 137.0, 252.0, 264.0]
+
+
+def test_gemini_gets_response_schema(monkeypatch):
+    seen = []
+    _fake_gemini(monkeypatch, {"boxes": []}, seen)
+    ai.translate_page(b"x", "image/png", "ky")
+    config = json.loads(seen[0].data)["generationConfig"]
+    assert config["responseSchema"]["properties"]["boxes"]["type"] == "ARRAY"
+
+
 def test_gemini_answer_without_any_box(monkeypatch):
     _fake_gemini(monkeypatch, {"boxes": [{"text": "нет рамки"}]}, [])
     with pytest.raises(service.AIUnavailableError):
