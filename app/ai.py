@@ -39,6 +39,10 @@ GEMINI_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
 CLAUDE_MODEL = os.environ.get("OQU_AI_MODEL", "claude-opus-5-5")
 LANG_NAMES = {"ru": "Russian", "kk": "Kazakh", "ky": "Kyrgyz",
               "en": "English"}
+# Самоназвание языка: без него облегчённые модели иногда переводят
+# «на казахский» по-английски.
+LANG_NATIVE = {"ru": "русский язык", "kk": "қазақ тілі (кириллица)",
+               "ky": "кыргыз тили (кириллица)", "en": "English"}
 
 # Часть «запроса»: текст или картинка — одинаково для всех провайдеров.
 Part = tuple  # ("text", str) | ("image", bytes, media_type)
@@ -220,15 +224,33 @@ TRANSLATE_SYSTEM = (
     "the tone of each character. Reply with JSON only.")
 
 
-def _box_from_gemini(b: dict) -> dict:
+def _box_from_gemini(b: dict) -> dict | None:
     """Gemini отдаёт рамку как box_2d = [ymin, xmin, ymax, xmax] в долях
-    0–1000 — переводим в проценты x, y, w, h."""
+    0–1000 — переводим в проценты x, y, w, h. Модель называет поле
+    по-разному (box_2d, bbox, box), принимаем любое; без рамки — None."""
+    raw = next((b[k] for k in ("box_2d", "bbox", "box", "bounding_box")
+                if k in b), None)
     try:
-        y0, x0, y1, x1 = (float(v) / 10 for v in b["box_2d"])
-    except (KeyError, TypeError, ValueError):
-        return b
+        y0, x0, y1, x1 = (float(v) / 10 for v in raw)
+    except (TypeError, ValueError):
+        return None
     return {**b, "x": min(x0, x1), "y": min(y0, y1), "w": abs(x1 - x0),
             "h": abs(y1 - y0)}
+
+
+def _normalize_box(b: dict, gemini: bool) -> dict | None:
+    """Привести ответ модели к виду ``{x, y, w, h, shape, src, text}``."""
+    if not isinstance(b, dict):
+        return None
+    if gemini:
+        b = _box_from_gemini(b)
+        if b is None:
+            return None
+    text = b.get("translation", b.get("text", ""))
+    src = b.get("original", b.get("src", ""))
+    if not all(isinstance(b.get(k), (int, float)) for k in "xywh"):
+        return None          # рамку без координат пропускаем, а не падаем
+    return {**b, "text": text, "src": src}
 
 
 def translate_page(image: bytes, media_type: str, lang: str) -> list[dict]:
@@ -247,18 +269,26 @@ def translate_page(image: bytes, media_type: str, lang: str) -> list[dict]:
         "(x and y of the top-left corner, w, h)")
     example = ('"box_2d": [0, 0, 0, 0]' if gemini
                else '"x": 0, "y": 0, "w": 0, "h": 0')
+    target = f"{LANG_NAMES[lang]} ({LANG_NATIVE[lang]})"
     prompt = (
-        f"Translate all text on this page into {LANG_NAMES[lang]}. For each "
-        f"text region {box_format}, covering the whole balloon interior so "
-        "the translation can be drawn over the original. Use shape \"oval\" "
-        "for round speech balloons and \"rect\" for captions, signs and "
-        "sound effects. Keep reading order. Return exactly: "
+        f"TARGET LANGUAGE: {target}.\n"
+        f"Translate all text on this page into {target}. Every "
+        f'"translation" value MUST be written in {LANG_NAMES[lang]}'
+        + ("" if lang == "en" else ", not in English") + ". "
+        f"For each text region {box_format}, covering the whole balloon "
+        "interior so the translation can be drawn over the original. Use "
+        'shape "oval" for round speech balloons and "rect" for captions, '
+        "signs and sound effects. Keep reading order. Return exactly: "
         f'{{"boxes": [{{{example}, "shape": "oval", '
-        '"src": "<original text>", "text": "<translation>"}]}')
+        '"original": "<original text>", '
+        f'"translation": "<text in {LANG_NAMES[lang]}>"}}]}}')
     data = _json(_ask([("image", image, media_type), ("text", prompt)],
                       TRANSLATE_SYSTEM, 8000))
     boxes = data.get("boxes") if isinstance(data, dict) else data
-    if gemini and isinstance(boxes, list):
-        boxes = [_box_from_gemini(b) if isinstance(b, dict) else b
-                 for b in boxes]
-    return service.clean_boxes(boxes or [])
+    if not isinstance(boxes, list):
+        raise service.AIUnavailableError("ИИ вернул ответ не в том формате")
+    clean = [b for b in (_normalize_box(x, gemini) for x in boxes) if b]
+    if boxes and not clean:
+        raise service.AIUnavailableError(
+            "ИИ не смог разметить реплики, попробуйте ещё раз")
+    return service.clean_boxes(clean)

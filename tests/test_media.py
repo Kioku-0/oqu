@@ -219,6 +219,28 @@ def test_gemini_translation_boxes(monkeypatch):
         "image/png"
 
 
+def test_gemini_answer_variants(monkeypatch):
+    # Список вместо объекта, поле bbox вместо box_2d, original/translation
+    # вместо src/text, рамка без координат — пропускается, а не роняет всё.
+    seen = []
+    _fake_gemini(monkeypatch, [
+        {"bbox": [0, 0, 500, 500], "original": "やあ", "translation": "Сәлем"},
+        {"shape": "oval", "translation": "без рамки"},
+    ], seen)
+    boxes = ai.translate_page(b"\x89PNG", "image/png", "kk")
+    assert [(b["text"], b["src"], b["w"]) for b in boxes] == \
+        [("Сәлем", "やあ", 50.0)]
+    # Язык назван и по-английски, и самоназванием.
+    prompt = json.loads(seen[0].data)["contents"][0]["parts"][1]["text"]
+    assert "Kazakh" in prompt and "қазақ тілі" in prompt
+
+
+def test_gemini_answer_without_any_box(monkeypatch):
+    _fake_gemini(monkeypatch, {"boxes": [{"text": "нет рамки"}]}, [])
+    with pytest.raises(service.AIUnavailableError):
+        ai.translate_page(b"x", "image/png", "ru")
+
+
 def test_gemini_trailer_is_cleaned(monkeypatch):
     long = "Очень длинная подпись " * 20
     _fake_gemini(monkeypatch, {"scenes": [
