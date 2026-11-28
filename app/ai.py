@@ -29,11 +29,15 @@ import os
 import re
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Optional
 
-from app import service
+from app import service, svg_safe
 
 GEMINI_MODEL = os.environ.get("OQU_GEMINI_MODEL", "gemini-flash-lite-latest")
+# Рисует сцены трейлеров модель посильнее (у неё меньше бесплатных запросов
+# в день, но рисунок нужен один раз на книгу). Не вышло — берём основную.
+GEMINI_DRAW_MODEL = os.environ.get("OQU_GEMINI_DRAW_MODEL",
+                                   "gemini-flash-latest")
 GEMINI_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
               "{model}:generateContent")
 CLAUDE_MODEL = os.environ.get("OQU_AI_MODEL", "claude-opus-5-5")
@@ -71,14 +75,14 @@ def model_name() -> str:
 
 
 def _ask(parts: list[Part], system: str, max_tokens: int,
-         schema: dict | None = None) -> str:
+         schema: dict | None = None, model: str | None = None) -> str:
     """Один запрос к ИИ; возвращает текст ответа (в нём JSON).
 
     ``schema`` — схема ответа для Gemini (structured output): с ней модель
-    не может прислать сломанный JSON."""
+    не может прислать сломанный JSON. ``model`` — другая модель Gemini."""
     which = provider()
     if which == "gemini":
-        return _ask_gemini(parts, system, max_tokens, schema)
+        return _ask_gemini(parts, system, max_tokens, schema, model)
     if which == "claude":
         return _ask_claude(parts, system, max_tokens)
     raise service.AIUnavailableError(
@@ -88,7 +92,8 @@ def _ask(parts: list[Part], system: str, max_tokens: int,
 
 # --- Google Gemini (бесплатный тариф) ----------------------------------------
 def _ask_gemini(parts: list[Part], system: str, max_tokens: int,
-                schema: dict | None = None) -> str:
+                schema: dict | None = None,
+                model: str | None = None) -> str:
     body = {
         "system_instruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [
@@ -102,13 +107,15 @@ def _ask_gemini(parts: list[Part], system: str, max_tokens: int,
     if schema:
         body["generationConfig"]["responseSchema"] = schema
     request = urllib.request.Request(
-        GEMINI_URL.format(model=GEMINI_MODEL),
+        GEMINI_URL.format(model=model or GEMINI_MODEL),
         data=json.dumps(body).encode("utf-8"), method="POST",
         # Ключ — в заголовке, а не в адресе: адреса попадают в логи.
         headers={"Content-Type": "application/json",
                  "x-goog-api-key": os.environ["GEMINI_API_KEY"]})
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:
+        # Рисование (большой ответ) идёт минуты; оно работает в фоне.
+        wait = 300 if max_tokens > 20000 else 90
+        with urllib.request.urlopen(request, timeout=wait) as response:
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 429:
@@ -139,7 +146,9 @@ def _ask_claude(parts: list[Part], system: str, max_tokens: int) -> str:
         # fallbacks="default": если основная модель откажет по правилам
         # безопасности, сервер Anthropic сам повторит запрос на запасной.
         response = client.beta.messages.create(
-            model=CLAUDE_MODEL, max_tokens=max_tokens, system=system,
+            # Без стриминга SDK не разрешает очень большой max_tokens.
+            model=CLAUDE_MODEL, max_tokens=min(max_tokens, 16000),
+            system=system,
             betas=["server-side-fallback-2026-07-01"], fallbacks="default",
             output_config={"effort": "medium"},
             messages=[{"role": "user", "content": content}])
@@ -269,6 +278,109 @@ def generate_trailer(book: dict[str, Any], sample: str) -> list[dict]:
             :service.MAX_SCENE_TEXT]} if isinstance(s, dict) else s
             for s in scenes[:service.MAX_TRAILER_SCENES]]
     return service.clean_trailer(scenes)
+
+
+# --- ИИ рисует сцены трейлера (анимированный SVG) --------------------------
+DRAW_SYSTEM = (
+    "You are an illustrator and motion designer who draws with SVG code. "
+    "You make small looping animated illustrations for book trailers seen "
+    "by teenagers: flat vector style, bold readable shapes, a clear focal "
+    "subject, a mood that matches the caption, rich but harmonious colors. "
+    "Reply with JSON only.")
+
+DRAW_RULES = (
+    "Quality bar: like a polished flat-design illustration from a "
+    "children's encyclopedia, not a doodle. First plan the picture in the "
+    '"plan" field (setting, main subject, colors, what moves), then draw.\n'
+    "Rules for every SVG:\n"
+    '- root: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">'
+    ";\n"
+    "- layered depth: a sky or wall with a <linearGradient>, a far layer "
+    "(mountains, city skyline, horizon), a middle layer, a foreground "
+    "(ground, grass, floor, waves);\n"
+    "- the main subject from the caption is large (about a third of the "
+    "frame), built from 8 or more shapes so it is clearly recognisable: "
+    "a horse has a head, ears, mane, four legs and a tail and a rider sits "
+    "on it; a person has a head, hair, body, arms, legs and clothes; a "
+    "ship has a hull, masts and sails; a fortress has walls, towers and a "
+    "gate. Use <path> curves, not only circles and rectangles;\n"
+    "- light and shade: a darker shade on one side of objects, a glow "
+    "for lamps, fire, the moon or the sun;\n"
+    "- 2 to 4 smooth looping animations made with <animate>, "
+    "<animateTransform> or CSS @keyframes in a <style> element (the horse "
+    "gallops, snow falls, waves roll, a flag waves, a candle flickers, "
+    "stars twinkle), dur 1-6s, infinite;\n"
+    "- the audience is schoolchildren: show danger and drama through "
+    "weather, light, distance and posture, NEVER through violence: no "
+    "blood, wounds, corpses, skulls, gallows, nooses, executions, "
+    "weapons pointed at a person, no frightening faces; swords may only "
+    "be held up or crossed;\n"
+    "- NO text or letters, NO <script>, NO <image>, NO <foreignObject>, "
+    "NO external links or fonts;\n"
+    "- 2500 to 6000 characters per SVG.")
+
+
+def draw_scenes(book: dict[str, Any],
+                scenes: list[dict]) -> list[Optional[str]]:
+    """Нарисовать анимированный SVG для каждой сцены трейлера.
+
+    Возвращает список той же длины: очищенный SVG или ``None`` (тогда
+    останется сцена из каталога). Один запрос к ИИ на весь трейлер."""
+    captions = "\n".join(f"{i + 1}. {s['text']}"
+                         for i, s in enumerate(scenes))
+    prompt = (
+        f"Book: «{book['title']}» by {book['author']}.\n"
+        f"Description: {book.get('description') or '-'}\n\n"
+        f"Trailer pages (captions):\n{captions}\n\n"
+        "Draw one animated SVG illustration for each page, in the same "
+        f"order ({len(scenes)} in total). Each picture must show what its "
+        "caption is about, in the setting of this book.\n\n"
+        f"{DRAW_RULES}\n\n"
+        'Return exactly: {"scenes": [{"index": 1, "plan": "<composition>", '
+        '"svg": "<svg ...>"}]}')
+    # «plan» перед «svg»: модель сначала продумывает композицию, а потом
+    # рисует — так рисунки заметно лучше. Сам план нигде не сохраняется.
+    schema = {"type": "OBJECT", "required": ["scenes"], "properties": {
+        "scenes": {"type": "ARRAY", "items": {
+            "type": "OBJECT", "required": ["index", "plan", "svg"],
+            "propertyOrdering": ["index", "plan", "svg"],
+            "properties": {"index": {"type": "INTEGER"},
+                           "plan": {"type": "STRING"},
+                           "svg": {"type": "STRING"}}}}}}
+    parts = [("text", prompt)]
+    try:
+        raw = _ask(parts, DRAW_SYSTEM, 60000, schema, GEMINI_DRAW_MODEL)
+    except service.AIUnavailableError:
+        if provider() != "gemini" or GEMINI_DRAW_MODEL == GEMINI_MODEL:
+            raise
+        raw = _ask(parts, DRAW_SYSTEM, 60000, schema)   # запасная модель
+    data = _json(raw)
+    items = data.get("scenes") if isinstance(data, dict) else data
+    result: list[Optional[str]] = [None] * len(scenes)
+    for k, item in enumerate(items if isinstance(items, list) else []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            i = int(item.get("index", k + 1)) - 1
+        except (TypeError, ValueError):
+            i = k
+        if 0 <= i < len(scenes):
+            result[i] = svg_safe.sanitize_svg(item.get("svg"))
+    return result
+
+
+def generate_drawn_trailer(book: dict[str, Any], sample: str) -> list[dict]:
+    """Полный трейлер от ИИ: сначала подписи, потом рисунки к ним.
+
+    Если рисование не удалось (лимит, ошибка), трейлер всё равно
+    получается — со сценами из каталога."""
+    scenes = generate_trailer(book, sample)
+    try:
+        drawings = draw_scenes(book, scenes)
+    except service.AIUnavailableError:
+        return scenes
+    return [{**s, "svg": svg} if svg else s
+            for s, svg in zip(scenes, drawings)]
 
 
 # --- Перевод страницы манги -----------------------------------------------

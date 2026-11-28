@@ -312,6 +312,8 @@ class PresentOut(BaseModel):
 class TrailerScene(BaseModel):
     scene: str = Field(..., max_length=20, examples=["rider"])
     text: str = Field(..., min_length=1, max_length=160)
+    # Анимированный рисунок, нарисованный ИИ (очищается на сервере).
+    svg: Optional[str] = Field(None, max_length=32_000)
 
 
 class TrailerIn(BaseModel):

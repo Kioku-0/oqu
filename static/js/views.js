@@ -34,7 +34,12 @@ function progressBar(b) {
     const pct = b.has_text ? Math.min(100, Math.round((b.position || 0) / 10)) : 0;
     return `<div class="progress" title="${esc(progressLabel(b))}"><i style="width:${pct}%"></i></div>`;
 }
-const genreName = (g) => (g ? (Oqu.state.t["genre." + g] || g) : "—");
+// Жанры в базе хранятся строчными («манга») — показываем с большой буквы.
+const genreName = (g) => {
+    if (!g) return "—";
+    const name = Oqu.state.t["genre." + g] || g;
+    return name.charAt(0).toLocaleUpperCase(Oqu.state.lang) + name.slice(1);
+};
 
 /* ======================================================================
    Главная
@@ -446,7 +451,8 @@ route(/^\/bookcase$/, async (view, _m, params) => {
         const shelfH = parseFloat(getComputedStyle(caseEl).getPropertyValue("--shelf-h")) || 200;
         const scale = shelfH / 200;
         const gap = 3;
-        const spineW = (b) => Math.round(Math.min(52, 30 + b.title.length / 2.2) * scale);
+        // Свиток манги — круглый рулон, шире обычного корешка.
+        const spineW = (b) => Math.round((b.kind === "manga" ? 46 : Math.min(52, 30 + b.title.length / 2.2)) * scale);
         const usable = width * .82;                                   // ~18% оставляем под декор
 
         const shelves = Array.from({ length: SHELF_COUNT }, () => ({ books: [], used: 0, genres: [] }));
@@ -480,7 +486,12 @@ route(/^\/bookcase$/, async (view, _m, params) => {
                 if (used + need > width - 30) break;
                 used += need;
                 const height = Math.round((140 + (h % 45)) * scale);
-                items.push(`<button class="spine s-${1 + (h % 6)}${tilt}" data-id="${b.id}" style="--c:${esc(b.cover_color)};--h:${height}px;--w:${spineW(b)}px"
+                // Манга стоит на полке свитком: бумажный рулон, деревянные
+                // ручки сверху и снизу, лента цвета обложки.
+                items.push(b.kind === "manga"
+                    ? `<button class="spine scroll" data-id="${b.id}" style="--c:${esc(b.cover_color)};--h:${height}px;--w:${spineW(b)}px"
+                        title="${esc(b.title)} — ${esc(b.author)}"><span>${esc(b.title)}</span></button>`
+                    : `<button class="spine s-${1 + (h % 6)}${tilt}" data-id="${b.id}" style="--c:${esc(b.cover_color)};--h:${height}px;--w:${spineW(b)}px"
                     title="${esc(b.title)} — ${esc(b.author)}"><span>${esc(b.title)}</span></button>`);
             }
             let free = width - used - 10;                         // запас на тени
@@ -1136,16 +1147,17 @@ route(/^\/stats$/, async (view) => {
 /* ======================================================================
    Редактор книги: добавление и изменение
    ====================================================================== */
-route(/^\/books\/new$/, (view) => bookEditor(view, null), { auth: true });
+route(/^\/books\/new$/, (view, _m, params) => bookEditor(view, null, params.get("kind")), { auth: true });
 route(/^\/books\/(\d+)\/edit$/, async (view, [id]) => bookEditor(view, await api(`/api/books/${id}`)), { auth: true });
 
-async function bookEditor(view, book) {
+async function bookEditor(view, book, kindParam = null) {
     const isNew = !book;
     if (isNew && !can("book.add")) { view.innerHTML = emptyState("lock", t("error.forbidden_title"), t("error.forbidden")); return; }
     if (!isNew && !book.can_edit) { view.innerHTML = emptyState("lock", t("error.forbidden_title"), t("error.forbidden")); return; }
     let content = "";
     if (!isNew && book.has_text) content = (await api(`/api/books/${book.id}/read`)).content;
-    const b = book || { title: "", author: "", year: null, language: "ru", genre: "", description: "", cover_color: COLORS[0], tags: [], external_url: "", is_paid: false, price: 0 };
+    const b = book || { title: "", author: "", year: null, language: "ru", genre: kindParam === "manga" ? "манга" : "", description: "",
+        cover_color: COLORS[0], tags: [], external_url: "", is_paid: false, price: 0, kind: kindParam === "manga" ? "manga" : "book" };
     const genres = await api("/api/genres").catch(() => []);
     let tags = [...(b.tags || [])];
     setTitle(t(isNew ? "editor.new" : "editor.edit"));
@@ -1153,6 +1165,11 @@ async function bookEditor(view, book) {
       <form class="editor" id="book-form" novalidate>
         <div>
           <div class="form-error" id="ed-err"></div>
+          <div class="kind-pick" role="radiogroup" aria-label="${esc(t("media.choose_kind"))}">
+            <span class="kind-q">${esc(t("media.choose_kind"))}</span>
+            ${["book", "manga"].map((k) => `<button type="button" class="kind-opt" data-kind="${k}" role="radio" aria-checked="${(b.kind || "book") === k}">
+              ${icon(k === "manga" ? "image" : "book")}<b>${esc(t("media.kind_" + k))}</b><small>${esc(t(k === "manga" ? "media.kind_hint" : "media.kind_book_hint"))}</small></button>`).join("")}
+          </div>
           <div class="card">
             <h2>${esc(t("editor.main"))}</h2>
             <label class="field"><span>${esc(t("book.title"))} *</span><input class="input" name="title" required maxlength="300" value="${esc(b.title)}"></label>
@@ -1164,16 +1181,19 @@ async function bookEditor(view, book) {
               <label class="field"><span>${esc(t("book.genre"))}</span><input class="input" name="genre" list="genre-list" maxlength="60" value="${esc(b.genre)}">
                 <datalist id="genre-list">${genres.map((g) => `<option value="${esc(g.name)}">`).join("")}</datalist></label>
             </div>
-            <label class="field"><span>${esc(t("media.kind"))}</span><select class="select" name="kind">${["book", "manga"].map((k) =>
-              `<option value="${k}" ${(b.kind || "book") === k ? "selected" : ""}>${esc(t("media.kind_" + k))}</option>`).join("")}</select>
-              <small class="hint">${esc(t("media.kind_hint"))}</small></label>
+            <input type="hidden" name="kind" value="${(b.kind || "book") === "manga" ? "manga" : "book"}">
             <label class="field"><span>${esc(t("book.about"))}</span><textarea class="textarea" name="description" maxlength="5000">${esc(b.description)}</textarea></label>
             <div class="field"><span>${esc(t("filter.tags"))}</span><div class="tags-input" id="tags-box"><input id="tag-in" maxlength="40" placeholder="${esc(t("editor.tag_ph"))}"></div>
               <small class="hint">${esc(t("editor.tag_hint"))}</small></div>
             <label class="field"><span>${esc(t("editor.external"))}</span><input class="input" name="external_url" type="url" maxlength="500" placeholder="https://library.korkyt.kz/MegaPro/…" value="${esc(b.external_url)}">
               <small class="hint">${esc(t("editor.external_hint"))}</small></label>
           </div>
-          <div class="card section">
+          ${isNew ? `<div class="card section" id="ed-new-pages"><h2>${icon("image")} ${esc(t("media.pages_title"))}</h2>
+            <p class="muted small">${esc(t("media.new_pages_hint"))}</p>
+            <label class="drop">${icon("upload")}<div id="new-pages-name">${esc(t("media.pages_load"))}</div>
+              <input type="file" id="new-pages" accept="image/png,image/jpeg,image/webp" multiple></label>
+            <div class="mg-thumbs" id="new-pages-prev" style="margin-top:12px"></div></div>` : ""}
+          <div class="card section" id="ed-content">
             <h2>${esc(t("editor.content"))}</h2>
             <p class="muted small">${esc(t("editor.content_hint"))}</p>
             <div class="ed-tools" role="toolbar" aria-label="${esc(t("editor.text"))}">
@@ -1216,7 +1236,7 @@ async function bookEditor(view, book) {
     const form = $("#book-form");
     const preview = () => {
         $("#cover-preview").innerHTML = cover({ id: book?.id, title: form.title.value || t("book.title"), author: form.author.value || t("book.author"),
-            cover_color: form.cover_color.value, cover_pattern: form.cover_pattern.value, cover_image: b.cover_image,
+            cover_color: form.cover_color.value, cover_pattern: form.cover_pattern.value, cover_image: b.cover_image, kind: form.kind.value,
             is_paid: form.is_paid?.checked, has_file: !!$("#pdf-file").files[0] || (book && book.has_file) });
     };
     ["title", "author"].forEach((n) => form[n].addEventListener("input", preview));
@@ -1300,6 +1320,30 @@ async function bookEditor(view, book) {
     preview();
     Oqu.media.bindEditor(book).catch(() => {});
 
+    // Книга или манга: у манги вместо текста и PDF — страницы-картинки.
+    let newPages = [];
+    const setKind = (kind) => {
+        form.kind.value = kind;
+        $$(".kind-opt").forEach((x) => x.setAttribute("aria-checked", String(x.dataset.kind === kind)));
+        $("#ed-content").hidden = kind === "manga";
+        if ($("#ed-new-pages")) $("#ed-new-pages").hidden = kind !== "manga";
+        if (kind === "manga" && !form.genre.value.trim()) form.genre.value = "манга";
+        if (kind !== "manga" && form.genre.value.trim().toLowerCase() === "манга") form.genre.value = "";
+        if (isNew) $(".page-head h1").textContent = t(kind === "manga" ? "nav.add_manga" : "editor.new");
+        preview();
+    };
+    $$(".kind-opt").forEach((x) => x.addEventListener("click", () => setKind(x.dataset.kind)));
+    setKind(form.kind.value);
+    $("#new-pages")?.addEventListener("change", (e) => {
+        // По порядку имён файлов: 001.png, 002.png, …
+        newPages = [...e.target.files].filter((f) => f.size <= 8 * 1024 * 1024)
+            .sort((a, c) => a.name.localeCompare(c.name, undefined, { numeric: true }));
+        if (newPages.length < e.target.files.length) toast(t("media.page_big", { name: "" }), "error");
+        $("#new-pages-name").textContent = t("media.pages_chosen", { n: newPages.length });
+        $("#new-pages-prev").innerHTML = newPages.slice(0, 24).map((f, i) =>
+            `<div class="mg-thumb"><img src="${URL.createObjectURL(f)}" alt=""><span>${i + 1}</span></div>`).join("");
+    });
+
     form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const err = $("#ed-err");
@@ -1333,9 +1377,19 @@ async function bookEditor(view, book) {
                 const fd = new FormData(); fd.append("file", coverFile);
                 await api(`/api/books/${saved.id}/cover`, { method: "POST", form: fd });
             }
+            // Страницы новой манги загружаем сразу, по одной, с прогрессом.
+            if (isNew && data.kind === "manga" && newPages.length) {
+                let k = 0;
+                for (const f of newPages) {
+                    k += 1;
+                    btn.textContent = t("media.uploading", { k, n: newPages.length });
+                    const fd = new FormData(); fd.append("file", f);
+                    await api(`/api/books/${saved.id}/pages`, { method: "POST", form: fd });
+                }
+            }
             toast(t(isNew ? "editor.created" : "common.saved"), "ok");
-            // Новую мангу сразу открываем в редакторе: там загружаются страницы.
-            location.hash = isNew && data.kind === "manga" ? `#/books/${saved.id}/edit` : "#/book/" + saved.id;
+            // Манга без страниц — в редактор (догрузить), иначе на её страницу.
+            location.hash = isNew && data.kind === "manga" && !newPages.length ? `#/books/${saved.id}/edit` : "#/book/" + saved.id;
         } catch (ex) {
             btn.disabled = false;
             btn.textContent = t(isNew ? "editor.publish" : "common.save");

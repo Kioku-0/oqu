@@ -22,7 +22,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from app import profanity, security
+from app import profanity, security, svg_safe
 from app.db import DATETIME_FMT
 
 # ---------------------------------------------------------------------------
@@ -655,9 +655,12 @@ def add_book_image(db: sqlite3.Connection, book_id: int,
 
 
 def book_files(db: sqlite3.Connection, book_id: int) -> list[str]:
-    """Все картинки книги (обложка и иллюстрации) — чтобы удалить файлы."""
+    """Все картинки книги (обложка, иллюстрации, страницы манги) — чтобы
+    удалить их файлы вместе с книгой."""
     names = [r[0] for r in db.execute(
-        "SELECT file_name FROM book_images WHERE book_id = ?", (book_id,))]
+        "SELECT file_name FROM book_images WHERE book_id = ? UNION ALL "
+        "SELECT file_name FROM manga_pages WHERE book_id = ?",
+        (book_id, book_id))]
     cover = db.execute("SELECT cover_image FROM books WHERE id = ?",
                        (book_id,)).fetchone()
     if cover and cover[0]:
@@ -1766,7 +1769,13 @@ def clean_trailer(scenes: Any) -> list[dict[str, str]]:
         if len(text) > MAX_SCENE_TEXT:
             raise ValidationError(f"Подпись сцены — не длиннее "
                                   f"{MAX_SCENE_TEXT} символов")
-        result.append({"scene": scene, "text": profanity.censor(text)})
+        clean = {"scene": scene, "text": profanity.censor(text)}
+        # Рисунок, который нарисовал ИИ (необязателен): только после
+        # очистки; негодный просто отбрасывается — останется сцена каталога.
+        svg = svg_safe.sanitize_svg(item.get("svg"))
+        if svg:
+            clean["svg"] = svg
+        result.append(clean)
     return result
 
 

@@ -122,6 +122,17 @@ const SCENES = {
         <path class="tr-comet" d="M0 0 l-40 -10" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
         <g class="tr-float"><circle cx="70" cy="140" r="12" fill="#f4efe2"/><path d="M62 152 h16 v22 h-16z" fill="#f4efe2"/></g>`,
 };
+/** Сцена страницы трейлера: рисунок ИИ (если есть) или сцена каталога.
+ *  Рисунок ИИ показывается как <img> из data:-адреса: так браузер не
+ *  выполняет в нём скрипты и не пускает его стили на сайт, а анимация
+ *  (CSS/SMIL внутри SVG) работает. Сервер его ещё и очищает. */
+function sceneHtml(s) {
+    if (s.svg && s.svg.startsWith("<svg")) {
+        return `<img class="tr-scene tr-ai" alt="" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(s.svg)}">`;
+    }
+    return sceneSvg(s.scene);
+}
+
 let sceneSeq = 0;
 function sceneSvg(name) {
     const draw = SCENES[name] || SCENES.books;
@@ -136,7 +147,7 @@ function sceneSvg(name) {
 const PAGE_MS = 4300;
 
 function pageHtml(scene, i, n) {
-    return `<div class="tr-page">${sceneSvg(scene.scene)}
+    return `<div class="tr-page">${sceneHtml(scene)}${scene.svg ? `<span class="tr-ai-badge">${icon("spark", "i-sm")}${esc(t("media.ai_drawn"))}</span>` : ""}
         <p class="tr-caption">${esc(scene.text)}</p><span class="tr-num">${i + 1} / ${n}</span></div>`;
 }
 function endHtml(b) {
@@ -430,6 +441,7 @@ function editorHtml(book) {
         <div class="btn-row" style="margin-top:10px">
           <button type="button" class="btn sm" id="tr-add">${icon("plus")}${esc(t("media.scene_add"))}</button>
           <button type="button" class="btn sm" id="tr-ai">${icon("spark")}${esc(t("media.ai_generate"))}</button>
+          <button type="button" class="btn sm" id="tr-draw" ${book.has_trailer ? "" : "hidden"}>${icon("image")}${esc(t("media.ai_redraw"))}</button>
           <button type="button" class="btn sm" id="tr-preview">${icon("play")}${esc(t("media.preview"))}</button>
           <button type="button" class="btn sm primary" id="tr-save">${esc(t("media.trailer_save"))}</button>
           <button type="button" class="btn sm ghost" id="tr-del" ${book.has_trailer ? "" : "hidden"}>${icon("trash")}${esc(t("common.delete"))}</button>
@@ -444,13 +456,13 @@ async function bindEditor(book) {
     const rows = $("#tr-rows");
     const draw = () => {
         rows.innerHTML = scenes.map((s, i) => `<div class="tr-row" data-i="${i}">
-            <div class="tr-thumb">${sceneSvg(s.scene)}</div>
+            <div class="tr-thumb">${sceneHtml(s)}</div>
             <div class="tr-row-fields"><select class="select" data-k="scene">${SCENE_IDS.map((id) => `<option value="${id}" ${id === s.scene ? "selected" : ""}>${esc(t("scene." + id))}</option>`).join("")}</select>
             <textarea class="textarea" data-k="text" maxlength="160" rows="2" placeholder="${esc(t("media.scene_ph"))}">${esc(s.text)}</textarea></div>
             <button type="button" class="icon-btn" data-rm aria-label="${esc(t("common.delete"))}">${icon("x")}</button></div>`).join("");
         $$(".tr-row", rows).forEach((row) => {
             const i = Number(row.dataset.i);
-            $("[data-k=scene]", row).addEventListener("change", (e) => { scenes[i].scene = e.target.value; draw(); });
+            $("[data-k=scene]", row).addEventListener("change", (e) => { scenes[i].scene = e.target.value; delete scenes[i].svg; draw(); });
             $("[data-k=text]", row).addEventListener("input", (e) => { scenes[i].text = e.target.value; });
             $("[data-rm]", row).addEventListener("click", () => { if (scenes.length > 3) { scenes.splice(i, 1); draw(); } });
         });
@@ -466,7 +478,7 @@ async function bindEditor(book) {
     $("#tr-save").addEventListener("click", async () => {
         try {
             await api(`/api/books/${book.id}/trailer`, { method: "PUT", body: { scenes: scenes.filter((s) => s.text.trim()) } });
-            $("#tr-del").hidden = false;
+            $("#tr-del").hidden = false; $("#tr-draw").hidden = false;
             toast(t("media.trailer_saved"), "ok");
         } catch (e) { toastError(e); }
     });
@@ -476,18 +488,39 @@ async function bindEditor(book) {
         catch (e) { toastError(e); }
     });
     const aiOn = await api("/api/ai/status").then((s) => s.enabled).catch(() => false);
-    $("#tr-ai").disabled = !aiOn;
+    $("#tr-ai").disabled = $("#tr-draw").disabled = !aiOn;
     $("#tr-ai-note").textContent = aiOn ? t("media.ai_note") : t("media.ai_off");
-    $("#tr-ai").addEventListener("click", async () => {
-        const btn = $("#tr-ai");
+    // Обе ИИ-кнопки: показать «работаю…» (рисование идёт до минуты).
+    const aiRun = async (btn, path, doneKey) => {
+        const label = btn.innerHTML;
         btn.disabled = true; btn.classList.add("loading");
+        btn.innerHTML = `${icon("spark")}${esc(t("media.ai_working"))}`;
         try {
-            scenes = (await api(`/api/books/${book.id}/trailer/generate`, { method: "POST" })).scenes;
-            draw(); $("#tr-del").hidden = false;
-            toast(t("media.ai_done"), "ok");
+            // Работа идёт на сервере в фоне; спрашиваем состояние раз в 4 с.
+            await api(`/api/books/${book.id}/trailer/${path}`, { method: "POST" });
+            const started = Date.now();
+            let job = { state: "working" };
+            while (job.state === "working" && Date.now() - started < 6 * 60 * 1000) {
+                await new Promise((r) => setTimeout(r, 4000));
+                job = await api(`/api/books/${book.id}/trailer/job`);
+                const sec = Math.round((Date.now() - started) / 1000);
+                btn.innerHTML = `${icon("spark")}${esc(t("media.ai_working"))} ${sec} с`;
+            }
+            if (job.state === "error") throw new Oqu.ApiError(503, { detail: job.error, code: "ai" });
+            if (job.state !== "done") throw new Oqu.ApiError(503, { detail: t("media.ai_timeout"), code: "ai" });
+            scenes = (await api(`/api/books/${book.id}/trailer`)).scenes;
+            draw(); $("#tr-del").hidden = false; $("#tr-draw").hidden = false;
+            toast(t(doneKey), "ok");
             openTrailer(book, scenes);
         } catch (e) { toastError(e); }
-        btn.disabled = false; btn.classList.remove("loading");
+        btn.disabled = false; btn.classList.remove("loading"); btn.innerHTML = label;
+    };
+    $("#tr-ai").addEventListener("click", () => aiRun($("#tr-ai"), "generate", "media.ai_done"));
+    $("#tr-draw").addEventListener("click", async () => {
+        // Рисует к сохранённым подписям — сначала сохраним правки.
+        try { await api(`/api/books/${book.id}/trailer`, { method: "PUT", body: { scenes: scenes.filter((s) => s.text.trim()) } }); }
+        catch (e) { toastError(e); return; }
+        aiRun($("#tr-draw"), "draw", "media.ai_drawn_done");
     });
 
     if (book.kind !== "manga") return;

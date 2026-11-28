@@ -25,6 +25,7 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -952,19 +953,94 @@ def remove_trailer(book_id: int, request: Request,
     return {"detail": "Трейлер удалён"}
 
 
-@app.post("/api/books/{book_id}/trailer/generate",
-          response_model=schemas.TrailerOut, tags=["Трейлеры"],
-          summary="Сгенерировать трейлер ИИ (Gemini) и сохранить")
+# Рисование трейлера ИИ идёт 1–3 минуты — дольше, чем прокси ждёт ответа
+# (120 с). Поэтому работа запускается в фоне, а страница раз в несколько
+# секунд спрашивает её состояние: GET /api/books/{id}/trailer/job.
+_trailer_jobs: dict[int, dict] = {}
+_jobs_lock = threading.Lock()
+
+
+def _run_trailer_job(book_id: int, user_id: int, mode: str, ip: str) -> None:
+    db = connect(DB_PATH)
+    try:
+        user = service.get_user(db, user_id)
+        book = service.get_book(db, book_id)
+        if mode == "generate":
+            scenes = ai.generate_drawn_trailer(dict(book),
+                                               book["content"] or "")
+            source = "ai"
+        else:
+            current = service.get_trailer(db, book_id)
+            drawings = ai.draw_scenes(dict(book), current["scenes"])
+            if not any(drawings):
+                raise service.AIUnavailableError(
+                    "ИИ не смог нарисовать сцены, попробуйте ещё раз")
+            scenes = [{**s, "svg": svg or s.get("svg")}
+                      for s, svg in zip(current["scenes"], drawings)]
+            source = current.get("source", "author")
+        service.set_trailer(db, user, book_id, scenes, source=source)
+        service.log_action(db, user_id, f"trailer_{mode}", f"#{book_id}", ip)
+        state = {"state": "done"}
+    except service.ServiceError as exc:
+        state = {"state": "error", "error": str(exc)}
+    except Exception:                       # noqa: BLE001 — в лог, наружу кратко
+        logger.exception("Фоновая генерация трейлера #%d", book_id)
+        state = {"state": "error", "error": "Внутренняя ошибка сервера"}
+    finally:
+        db.close()
+    with _jobs_lock:
+        _trailer_jobs[book_id] = {**state, "mode": mode,
+                                  "finished": time.time()}
+
+
+def _start_trailer_job(book_id: int, request: Request, user: sqlite3.Row,
+                       db: sqlite3.Connection, mode: str) -> dict:
+    book = service.get_book(db, book_id)
+    service.require_book_rights(user, book, "book.edit", "book.edit_own")
+    if mode == "draw":
+        service.get_trailer(db, book_id)        # рисовать есть к чему?
+    if not ai.is_configured():
+        raise service.AIUnavailableError(
+            "ИИ не настроен: на сервере не задан GEMINI_API_KEY")
+    with _jobs_lock:
+        job = _trailer_jobs.get(book_id)
+        if job and job["state"] == "working":
+            return job                           # уже идёт — не дублируем
+        _check_ai_rate(user["id"])
+        job = {"state": "working", "mode": mode, "started": time.time()}
+        _trailer_jobs[book_id] = job
+    threading.Thread(target=_run_trailer_job, daemon=True,
+                     args=(book_id, user["id"], mode,
+                           client_ip(request))).start()
+    return job
+
+
+@app.post("/api/books/{book_id}/trailer/generate", status_code=202,
+          tags=["Трейлеры"],
+          summary="ИИ (Gemini) пишет подписи и рисует сцены (в фоне)")
 def generate_trailer(book_id: int, request: Request,
                      user: sqlite3.Row = Depends(require_user),
                      db: sqlite3.Connection = Depends(get_db)):
-    book = service.get_book(db, book_id)
-    service.require_book_rights(user, book, "book.edit", "book.edit_own")
-    _check_ai_rate(user["id"])
-    scenes = ai.generate_trailer(dict(book), book["content"] or "")
-    result = service.set_trailer(db, user, book_id, scenes, source="ai")
-    audit(db, request, user["id"], "trailer_ai", f"#{book_id}")
-    return result
+    return _start_trailer_job(book_id, request, user, db, "generate")
+
+
+@app.post("/api/books/{book_id}/trailer/draw", status_code=202,
+          tags=["Трейлеры"],
+          summary="ИИ заново рисует сцены к подписям трейлера (в фоне)")
+def draw_trailer(book_id: int, request: Request,
+                 user: sqlite3.Row = Depends(require_user),
+                 db: sqlite3.Connection = Depends(get_db)):
+    return _start_trailer_job(book_id, request, user, db, "draw")
+
+
+@app.get("/api/books/{book_id}/trailer/job", tags=["Трейлеры"],
+         summary="Состояние фоновой работы ИИ над трейлером")
+def trailer_job(book_id: int, user: sqlite3.Row = Depends(require_user),
+                db: sqlite3.Connection = Depends(get_db)):
+    service.require_book_rights(user, service.get_book(db, book_id),
+                                "book.edit", "book.edit_own")
+    with _jobs_lock:
+        return _trailer_jobs.get(book_id, {"state": "none"})
 
 
 @app.get("/api/ai/status", tags=["Трейлеры"],

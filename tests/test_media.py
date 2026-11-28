@@ -116,6 +116,12 @@ def test_pages_are_numbered_and_renumbered(db, author, manga):
     assert service.get_book_details(db, manga)["pages"] == 3
 
 
+def test_manga_page_files_listed_for_deletion(db, author, manga):
+    service.add_manga_page(db, author, manga, "p1.png", 800, 1200)
+    service.add_manga_page(db, author, manga, "p2.png", 800, 1200)
+    assert sorted(service.book_files(db, manga)) == ["p1.png", "p2.png"]
+
+
 def test_page_needs_size_and_rights(db, author, manga):
     with pytest.raises(service.ValidationError):
         service.add_manga_page(db, author, manga, "a.png", 0, 100)
@@ -292,6 +298,86 @@ def test_gemini_quota_exhausted(monkeypatch):
     monkeypatch.setattr(ai.urllib.request, "urlopen", urlopen)
     with pytest.raises(service.AIUnavailableError, match="лимит"):
         ai.translate_page(b"x", "image/png", "kk")
+
+
+# --- Рисунки ИИ: очистка SVG ------------------------------------------------
+GOOD_SVG = ('<svg viewBox="0 0 320 200" width="900"><rect width="320" '
+            'height="200" fill="#123"/><circle cx="50" cy="50" r="9">'
+            '<animate attributeName="r" values="9;12;9" dur="2s" '
+            'repeatCount="indefinite"/></circle></svg>')
+
+
+def test_svg_keeps_drawing_and_animation():
+    from app.svg_safe import sanitize_svg
+    svg = sanitize_svg("```svg\n" + GOOD_SVG + "\n```")
+    assert svg.startswith("<svg") and "<animate" in svg
+    assert 'width="900"' not in svg and 'viewBox="0 0 320 200"' in svg
+
+
+@pytest.mark.parametrize("evil", [
+    '<script>alert(1)</script>',
+    '<foreignObject><div>x</div></foreignObject>',
+    '<image href="https://evil.example/a.png"/>',
+    '<a href="javascript:alert(1)"><rect width="1" height="1"/></a>',
+])
+def test_svg_dangerous_parts_removed(evil):
+    from app.svg_safe import sanitize_svg
+    svg = sanitize_svg(GOOD_SVG.replace("</svg>", evil + "</svg>"))
+    assert svg and "script" not in svg and "foreignObject" not in svg
+    assert "evil.example" not in svg and "javascript" not in svg
+
+
+def test_svg_dangerous_attributes_removed():
+    from app.svg_safe import sanitize_svg
+    svg = sanitize_svg(
+        '<svg viewBox="0 0 10 10"><rect width="5" height="5" '
+        'onclick="alert(1)" fill="url(https://evil.example/x)" '
+        'style="background:url(https://evil.example)"/>'
+        '<style>@import url(https://evil.example/a.css); rect{fill:red}'
+        '</style><use href="https://evil.example/#a"/></svg>')
+    assert "onclick" not in svg and "evil.example" not in svg
+
+
+@pytest.mark.parametrize("bad", [
+    None, 42, "просто текст", "<svg><rect", "<html></html>",
+    '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x "y">]><svg/>',
+    '<svg viewBox="0 0 10 10"><g/></svg>',               # без фигур
+    "<svg>" + "<rect width='1' height='1'/>" * 3000 + "</svg>",  # огромный
+])
+def test_svg_rejected(bad):
+    from app.svg_safe import sanitize_svg
+    assert sanitize_svg(bad) is None
+
+
+def test_trailer_keeps_clean_ai_drawing(db, author, book):
+    scenes = [{**SCENES[0], "svg": GOOD_SVG}, {**SCENES[1], "svg": "мусор"},
+              SCENES[2]]
+    saved = service.set_trailer(db, author, book, scenes)["scenes"]
+    assert "svg" in saved[0] and "svg" not in saved[1]
+    assert saved[0]["scene"] == "rider"        # запасная сцена остаётся
+
+
+def test_draw_scenes_by_index(monkeypatch):
+    _fake_gemini(monkeypatch, {"scenes": [
+        {"index": 2, "svg": GOOD_SVG}, {"index": 1, "svg": "<svg>сломан"}]},
+        [])
+    drawings = ai.draw_scenes({"title": "Т", "author": "А"}, SCENES)
+    assert drawings[0] is None and drawings[1].startswith("<svg")
+    assert drawings[2] is None
+
+
+def test_drawn_trailer_survives_failed_drawing(monkeypatch):
+    calls = []
+
+    def fake_ask(parts, system, max_tokens, schema=None, model=None):
+        calls.append(model)
+        if system == ai.DRAW_SYSTEM:
+            raise service.AIUnavailableError("лимит")
+        return json.dumps({"scenes": SCENES})
+    monkeypatch.setattr(ai, "_ask", fake_ask)
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    scenes = ai.generate_drawn_trailer({"title": "Т", "author": "А"}, "")
+    assert len(scenes) == 3 and not any("svg" in s for s in scenes)
 
 
 def test_ai_rejects_unknown_language():

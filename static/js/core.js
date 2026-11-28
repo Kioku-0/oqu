@@ -381,7 +381,8 @@ function renderChrome() {
     const items = navItems();
     $("#mainnav").innerHTML = items.map((i) =>
         `<a href="${i.href}" class="${i.match.test(hash) ? "active" : ""}">${icon(i.icon)}<span>${esc(t(i.key))}</span></a>`).join("")
-        + (can("book.add") ? `<a href="#/books/new" class="${/^#\/books\/new/.test(hash) ? "active" : ""}">${icon("plus")}<span>${esc(t("nav.add_book"))}</span></a>` : "");
+        + (can("book.add") ? `<a href="#/books/new" class="${/^#\/books\/new$/.test(hash) ? "active" : ""}">${icon("plus")}<span>${esc(t("nav.add_book"))}</span></a>
+            <a href="#/books/new?kind=manga" class="${/^#\/books\/new\?kind=manga/.test(hash) ? "active" : ""}">${icon("image")}<span>${esc(t("nav.add_manga"))}</span></a>` : "");
 
     // Нижняя панель на телефоне: 5 главных разделов. Вход и профиль —
     // в шапке справа сверху (как на большинстве сайтов), здесь их нет.
@@ -435,7 +436,8 @@ function toggleAccountMenu(e) {
         <div class="menu-head"><b>${esc(u.display_name || u.username)}</b><div class="small muted">@${esc(u.username)} · ${esc(t("role." + u.role))}</div></div>
         <a href="#/profile">${icon("user")}${esc(t("nav.profile"))}</a>
         <a href="#/shelf">${icon("bookmark")}${esc(t("nav.shelf"))}</a>
-        ${can("book.add") ? `<a href="#/books/new">${icon("plus")}${esc(t("nav.add_book"))}</a>` : ""}
+        ${can("book.add") ? `<a href="#/books/new">${icon("plus")}${esc(t("nav.add_book"))}</a>
+          <a href="#/books/new?kind=manga">${icon("image")}${esc(t("nav.add_manga"))}</a>` : ""}
         ${isStaff() ? `<a href="#/admin">${icon("shield")}${esc(t("nav.admin"))}</a>` : ""}
         <a href="#/profile/settings">${icon("settings")}${esc(t("profile.settings"))}</a>
         <button type="button" id="logout-btn">${icon("logout")}${esc(t("auth.logout"))}</button>`;
@@ -761,21 +763,25 @@ function cover(b, extra = "") {
     const flags = [];
     if (b.is_paid) flags.push(`<span class="badge">${icon("lock", "i-sm")}</span>`);
     if (b.has_file) flags.push(`<span class="badge">PDF</span>`);
+    // Манга — не книга, а развёрнутый свиток с деревянными валиками.
+    const scroll = b.kind === "manga";
+    const rods = scroll ? `<span class="scroll-rod top" aria-hidden="true"></span><span class="scroll-rod bottom" aria-hidden="true"></span>` : "";
+    const sc = scroll ? " is-scroll" : "";
     // Обложка-картинка (например, портрет автора): картинка во всю обложку,
     // название и автор — на полосе снизу.
     if (b.cover_image && MEDIA_RE.test(b.cover_image)) {
-        return `<div class="cover has-img" style="--c:${esc(b.cover_color || "#1f5f4a")}" ${extra}>
+        return `<div class="cover has-img${sc}" style="--c:${esc(b.cover_color || "#1f5f4a")}" ${extra}>
             <img class="cover-img" src="/media/${b.cover_image}" alt="" loading="lazy" decoding="async">
             <div class="cover-flags">${flags.join("")}</div>
             <div class="cover-band"><div class="cover-title">${esc(b.title)}</div>
-            <div class="cover-author">${esc(b.author)}</div></div></div>`;
+            <div class="cover-author">${esc(b.author)}</div></div>${rods}</div>`;
     }
     const pattern = coverPattern(b);
-    const layout = pattern === "band" ? "band" : LAYOUTS[hash("l" + (b.id ?? b.title)) % LAYOUTS.length];
-    return `<div class="cover p-${pattern} l-${layout}" style="--c:${esc(b.cover_color || "#1f5f4a")}" ${extra}>
+    const layout = scroll ? "center" : pattern === "band" ? "band" : LAYOUTS[hash("l" + (b.id ?? b.title)) % LAYOUTS.length];
+    return `<div class="cover p-${pattern} l-${layout}${sc}" style="--c:${esc(b.cover_color || "#1f5f4a")}" ${extra}>
         <div class="cover-flags">${flags.join("")}</div>
         <div class="cover-title">${esc(b.title)}</div>
-        <div class="cover-author">${esc(b.author)}</div></div>`;
+        <div class="cover-author">${esc(b.author)}</div>${rods}</div>`;
 }
 
 /* ---------- Текст книги с иллюстрациями и формулами ----------------------
