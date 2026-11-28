@@ -381,6 +381,7 @@ def seed() -> None:
         db.execute("UPDATE comments SET created_at = ? WHERE id = ?",
                    (when.strftime(service.DATETIME_FMT), cid))
     db.commit()
+    add_demo_news(db, editor)
     service.log_action(db, owner["id"], "seed", "демо-данные созданы")
 
     count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -702,8 +703,87 @@ def set_staff_password(ask_skip: bool = False) -> None:
         db.close()
 
 
+def add_demo_news(db, author) -> int:
+    """Демо-новости для главной: марафон, конкурсы, событие, обновления.
+
+    Добавляются, только если новостей ещё нет. ``author`` — редактор или
+    владелец (у него есть право ``news.manage``). Возвращает число новостей.
+    """
+    if db.execute("SELECT COUNT(*) FROM news").fetchone()[0]:
+        return 0
+
+    def book_link(title: str) -> str:
+        row = db.execute("SELECT id FROM books WHERE title = ?",
+                         (title,)).fetchone()
+        return f"#/book/{row['id']}" if row else "#/catalog"
+
+    now = service._now()
+
+    def ago(days: float) -> str:
+        return (now - timedelta(days=days)).strftime(service.DATETIME_FMT)
+
+    # (тип, заголовок, текст, ссылка, приз, срок, закреплено, дней назад)
+    items = [
+        ("update", "Кыргызский язык интерфейса",
+         "Сайт теперь на четырёх языках: қазақша, русский, кыргызча и "
+         "English. Язык переключается в шапке сайта.", "#/about", "", None,
+         False, 5),
+        ("event", "Защита проекта «Оқу» 8 декабря",
+         "Окончательная защита в КУ им. Коркыт Ата: покажем марафоны "
+         "чтения, план интеграции с Platonus и живую презентацию.",
+         "#/about", "", "2026-12-08 12:00:00", False, 3),
+        ("contest", "Турнир «Парақ» среди групп",
+         "Соберите больше всех страниц в мини-игре до конца семестра. "
+         "Рекорды видны в разделе «Статистика».", "#/game",
+         "звание «Главный читатель группы»", "2026-12-31 18:59:59", False, 2),
+        ("contest", "Конкурс отзывов «Абай и мы»",
+         "Напишите отзыв на «Қара сөздер» от 300 слов своими словами, без "
+         "копирования из интернета. Три лучших отзыва выберут модераторы.",
+         book_link("Қара сөздер"), "книжный сертификат 10 000 ₸",
+         "2026-12-20 18:59:59", False, 1),
+        ("update", "Обновление 2.1: новости и конкурсы",
+         "На главной появился раздел новостей. Редакторы публикуют "
+         "конкурсы со сроком и призом, а сайт сам считает, сколько дней "
+         "осталось.", "#/news", "", None, False, 0.5),
+        ("marathon", "Зимний марафон «15 книг до весны»",
+         "С 1 декабря по 1 марта. Книга: 250 баллов, отзыв: +50, книга за "
+         "10–15 дней: +50. Книга засчитывается после мини-теста. Лучшие "
+         "группы выходят в командный квиз.", "#/catalog",
+         "сертификат каждому, призёрам книги", "2027-03-01 18:59:59", True,
+         0.2),
+    ]
+    for kind, title, body, link, prize, ends, pinned, days in items:
+        nid = service.add_news(db, author, kind=kind, title=title, body=body,
+                               link=link, prize=prize, ends_at=ends,
+                               pinned=pinned)
+        db.execute("UPDATE news SET created_at = ? WHERE id = ?",
+                   (ago(days), nid))
+    db.commit()
+    return len(items)
+
+
+def seed_news() -> None:
+    """Добавить демо-новости в уже наполненную базу (например, на сервере):
+    ``python -m app.seed --news``."""
+    db = connect(DB_PATH)
+    try:
+        author = db.execute("SELECT * FROM users WHERE role IN ('owner', "
+                            "'editor') ORDER BY role = 'owner' DESC, id "
+                            "LIMIT 1").fetchone()
+        if author is None:
+            print("Нет владельца или редактора — сначала создайте базу.")
+            return
+        added = add_demo_news(db, author)
+        print(f"Добавлено новостей: {added}" if added
+              else "Новости уже есть — ничего не добавлено.")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
-    if "--create-owner" in sys.argv:
+    if "--news" in sys.argv:
+        seed_news()
+    elif "--create-owner" in sys.argv:
         create_owner()
     elif "--staff-password" in sys.argv:
         set_staff_password()

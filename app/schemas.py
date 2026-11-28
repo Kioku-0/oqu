@@ -262,3 +262,43 @@ class LogOut(BaseModel):
     details: str
     ip: str
     created_at: str
+
+
+class NewsIn(BaseModel):
+    kind: str = Field("update", pattern="^(update|contest|marathon|event)$",
+                      examples=["contest"])
+    title: str = Field(..., min_length=1, max_length=120)
+    body: str = Field("", max_length=2000)
+    link: str = Field("", max_length=200, examples=["#/catalog"])
+    prize: str = Field("", max_length=200)
+    ends_at: Optional[str] = Field(
+        None, pattern=r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$",
+        description="Срок конкурса в UTC: ГГГГ-ММ-ДД ЧЧ:ММ:СС")
+    pinned: bool = False
+
+
+class NewsOut(BaseModel):
+    id: int
+    kind: str
+    title: str
+    body: str
+    link: str
+    prize: str
+    ends_at: Optional[str]
+    pinned: bool
+    created_at: str
+
+
+class PresentIn(BaseModel):
+    action: str = Field(..., pattern="^(goto|next|prev|start|pause|resume|"
+                                     "reset)$", examples=["next"])
+    slide: Optional[int] = Field(None, ge=0, le=99)
+
+
+class PresentOut(BaseModel):
+    slide: int
+    started: bool
+    running: bool
+    elapsed: float
+    rev: int
+    server_time: float

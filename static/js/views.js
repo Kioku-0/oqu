@@ -54,6 +54,8 @@ route(/^\/$/, async (view) => {
         <div class="hero-stack" id="hero-stack"></div>
       </section>
       <div id="home-continue"></div>
+      <section class="section" id="home-news-sec"><div class="section-head"><h2>${esc(t("news.title"))}</h2><a href="#/news">${esc(t("common.all"))} →</a></div>
+        <div class="news-grid" id="home-news">${'<div class="news-card skeleton" style="height:150px"></div>'.repeat(3)}</div></section>
       <section class="section"><div class="stat-row" id="home-stats">${'<div class="stat skeleton" style="height:84px"></div>'.repeat(4)}</div></section>
       <section class="section"><a class="game-teaser" href="#/game"><span class="gt-ic">${icon("game")}</span>
         <span class="gt-txt"><b>${esc(t("game.title"))}</b><small>${esc(t("game.teaser"))}</small></span>
@@ -90,6 +92,10 @@ route(/^\/$/, async (view) => {
                 + `<span class="hero-decor r" aria-hidden="true">${decorHtml("plant", 1.25).html}</span>`
                 + `<span class="hero-plank" aria-hidden="true"></span>`;
         }),
+        api("/api/news?page_size=3").then((d) => {
+            if (!d.items.length) { $("#home-news-sec").remove(); return; }
+            $("#home-news").innerHTML = d.items.map(newsCard).join("");
+        }).catch(() => $("#home-news-sec")?.remove()),
         api("/api/books?sort=popular&order=desc&page_size=12").then((d) => strip("#home-pop", d.items)),
         api("/api/books?sort=rating&order=desc&page_size=12").then((d) => strip("#home-rated", d.items)),
         api("/api/stats").then((s) => {
@@ -109,6 +115,53 @@ route(/^\/$/, async (view) => {
         }));
     }
     await Promise.allSettled(jobs);
+});
+
+/* ======================================================================
+   Новости: обновления сайта, конкурсы, марафоны, события
+   ====================================================================== */
+const NEWS_ICON = { update: "edit", contest: "crown", marathon: "book", event: "globe" };
+function newsCard(n) {
+    const ends = n.ends_at ? Oqu.parseUtc(n.ends_at) : null;
+    let deadline = "";
+    if (ends) {
+        const days = Math.ceil((ends - Date.now()) / 86400000);
+        deadline = days > 0
+            ? `<span class="news-deadline">${icon("clock", "i-sm")}${esc(t("news.until", { d: fmtDate(n.ends_at) }))} · ${esc(t("news.days_left", { n: days }))}</span>`
+            : `<span class="news-deadline ended">${esc(t("news.ended"))}</span>`;
+    }
+    const tag = n.link ? "a" : "div";
+    return `<${tag} class="news-card k-${esc(n.kind)}" ${n.link ? `href="${esc(n.link)}"` : ""}>
+        <div class="news-top"><span class="news-kind">${icon(NEWS_ICON[n.kind] || "chat", "i-sm")}${esc(t("news.kind." + n.kind))}</span>
+          ${n.pinned ? `<span class="news-pin" title="${esc(t("news.pinned"))}">${icon("bookmark", "i-sm")}</span>` : ""}
+          <span class="news-date">${esc(fmtDate(n.created_at))}</span></div>
+        <h3>${esc(n.title)}</h3>
+        ${n.body ? `<p>${esc(n.body)}</p>` : ""}
+        ${n.prize || deadline ? `<div class="news-foot">${n.prize ? `<span class="news-prize">${icon("star", "i-sm")}${esc(t("news.prize", { prize: n.prize }))}</span>` : ""}${deadline}</div>` : ""}
+      </${tag}>`;
+}
+Oqu.newsCard = newsCard;
+
+route(/^\/news$/, async (view, _m, params) => {
+    setTitle(t("news.title"));
+    const kinds = ["", "contest", "marathon", "event", "update"];
+    let kind = kinds.includes(params.get("kind") || "") ? (params.get("kind") || "") : "";
+    let page = 1;
+    view.innerHTML = `<div class="page-head"><div><h1>${esc(t("news.title"))}</h1><p class="muted" style="margin:0">${esc(t("news.lead"))}</p></div></div>
+      <div class="chips" id="news-kinds">${kinds.map((k) => `<button class="chip" data-kind="${k}" aria-pressed="${k === kind}">${esc(k ? t("news.kind." + k) : t("common.all"))}</button>`).join("")}</div>
+      <div id="news-list" style="margin-top:18px"></div>`;
+    $$("#news-kinds [data-kind]").forEach((b) => b.addEventListener("click", () => {
+        kind = b.dataset.kind; page = 1;
+        $$("#news-kinds [data-kind]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        load();
+    }));
+    async function load() {
+        const d = await api(`/api/news?page=${page}&page_size=9${kind ? "&kind=" + kind : ""}`);
+        $("#news-list").innerHTML = d.items.length
+            ? `<div class="news-grid">${d.items.map(newsCard).join("")}</div>${pager(d, (n) => { page = n; load(); window.scrollTo(0, 0); })}`
+            : emptyState("chat", t("news.empty"));
+    }
+    await load();
 });
 
 function continueCard(b) {

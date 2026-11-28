@@ -91,6 +91,9 @@ OPENAPI_TAGS = [
                                          "студенты."},
     {"name": "Журнал", "description": "Журнал действий (усложнение)."},
     {"name": "Игра", "description": "Мини-игра «Парақ»: прогресс и рекорды."},
+    {"name": "Новости", "description": "Обновления, конкурсы, марафоны."},
+    {"name": "Презентация", "description": "Пульт живой презентации "
+                                           "(только владелец)."},
     {"name": "Интерфейс", "description": "Переводы и служебное."},
 ]
 
@@ -269,6 +272,8 @@ async def security_and_logging(request: Request, call_next):
     elif path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     elapsed = (time.perf_counter() - started) * 1000
+    if path == "/api/present/state" and response.status_code == 200:
+        return response    # опрос пульта раз в секунду — в лог не пишем
     logger.info("%s %s %s %d %.1fms", client_ip(request), request.method,
                 path, response.status_code, elapsed)
     return response
@@ -902,6 +907,85 @@ def game_reset(request: Request, user: sqlite3.Row = Depends(require_user),
          summary="Рекорды игры (все игроки на равных)")
 def game_top(db: sqlite3.Connection = Depends(get_db)):
     return service.game_leaderboard(db)
+
+
+# ===========================================================================
+# Новости: обновления, конкурсы, марафоны (блок на главной)
+# ===========================================================================
+@app.get("/api/news", response_model=schemas.Page[schemas.NewsOut],
+         tags=["Новости"], summary="Новости и конкурсы (пагинация)")
+def news_list(page: int = Query(1, ge=1),
+              page_size: int = Query(6, ge=1, le=50),
+              kind: str = Query("", pattern="^(|update|contest|marathon|"
+                                            "event)$"),
+              db: sqlite3.Connection = Depends(get_db)):
+    return service.list_news(db, page=page, page_size=page_size, kind=kind)
+
+
+@app.post("/api/news", response_model=schemas.Message, status_code=201,
+          tags=["Новости"], summary="Опубликовать новость (редактор)")
+def news_add(data: schemas.NewsIn, request: Request,
+             user: sqlite3.Row = Depends(require_perm("news.manage")),
+             db: sqlite3.Connection = Depends(get_db)):
+    news_id = service.add_news(db, user, **data.model_dump())
+    audit(db, request, user["id"], "news_add", f"#{news_id}: {data.title}")
+    return {"detail": "Новость опубликована"}
+
+
+@app.delete("/api/news/{news_id}", response_model=schemas.Message,
+            tags=["Новости"], summary="Удалить новость")
+def news_delete(news_id: int, request: Request,
+                user: sqlite3.Row = Depends(require_perm("news.manage")),
+                db: sqlite3.Connection = Depends(get_db)):
+    service.delete_news(db, user, news_id)
+    audit(db, request, user["id"], "news_delete", f"#{news_id}")
+    return {"detail": "Новость удалена"}
+
+
+# ===========================================================================
+# Живая презентация для защиты (только владелец): ноутбук у доски
+# показывает слайды и сайт, телефон работает пультом. Оба экрана раз в
+# ~0,7 с спрашивают /api/present/state, поэтому переключаются вместе.
+# ===========================================================================
+PRESENT_FILE = os.path.join(BASE_DIR, "app", "present", "slides.json")
+
+
+@app.get("/api/present/slides", tags=["Презентация"],
+         summary="Слайды и речь (только владелец)")
+def present_slides(user: sqlite3.Row = Depends(
+        require_perm("present.control"))):
+    with open(PRESENT_FILE, encoding="utf-8") as fh:
+        return Response(fh.read(), media_type="application/json")
+
+
+@app.get("/api/present/state", response_model=schemas.PresentOut,
+         tags=["Презентация"], summary="Текущий слайд и таймер")
+def present_state(user: sqlite3.Row = Depends(
+        require_perm("present.control")),
+        db: sqlite3.Connection = Depends(get_db)):
+    return service.get_present_state(db)
+
+
+@app.post("/api/present/control", response_model=schemas.PresentOut,
+          tags=["Презентация"], summary="Пульт: слайд, старт/пауза таймера")
+def present_control(data: schemas.PresentIn, request: Request,
+                    user: sqlite3.Row = Depends(
+                        require_perm("present.control")),
+                    db: sqlite3.Connection = Depends(get_db)):
+    state = service.control_present(db, user, data.action, data.slide)
+    if data.action in ("start", "reset"):
+        audit(db, request, user["id"], "present_" + data.action)
+    return state
+
+
+@app.get("/present", include_in_schema=False, response_class=HTMLResponse)
+def present_page():
+    """Страница презентации. Сама по себе пустая: слайды она получает по
+    API только с токеном владельца."""
+    with open(os.path.join(TEMPLATES_DIR, "present.html"),
+              encoding="utf-8") as fh:
+        html = fh.read().replace("{{v}}", _asset_version())
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 # ===========================================================================

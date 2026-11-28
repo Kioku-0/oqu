@@ -204,6 +204,30 @@ CREATE TABLE IF NOT EXISTS game_saves (
     CHECK (pages >= 0 AND pages_total >= pages AND clicks >= 0)
 );
 
+-- Новости на главной: обновления сайта, конкурсы, марафоны, события ---------
+CREATE TABLE IF NOT EXISTS news (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT    NOT NULL DEFAULT 'update'
+               CHECK (kind IN ('update', 'contest', 'marathon', 'event')),
+    title      TEXT    NOT NULL,
+    body       TEXT    NOT NULL DEFAULT '',
+    link       TEXT    NOT NULL DEFAULT '',     -- адрес внутри сайта: #/...
+    prize      TEXT    NOT NULL DEFAULT '',     -- приз конкурса (если есть)
+    ends_at    TEXT,                            -- срок конкурса (UTC)
+    pinned     INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT    NOT NULL
+);
+
+-- Живая презентация для защиты: одна строка, общий слайд и таймер -----------
+CREATE TABLE IF NOT EXISTS present_state (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    slide      INTEGER NOT NULL DEFAULT 0 CHECK (slide >= 0),
+    started_at REAL,                 -- время старта таймера (Unix, сек)
+    paused_at  REAL,                 -- если таймер на паузе — когда встал
+    rev        INTEGER NOT NULL DEFAULT 0
+);
+
 -- Индексы для частых запросов (поиск, сортировка, пагинация) -----------------
 CREATE INDEX IF NOT EXISTS idx_books_author  ON books(author);
 CREATE INDEX IF NOT EXISTS idx_books_title   ON books(title);
@@ -215,6 +239,7 @@ CREATE INDEX IF NOT EXISTS idx_log_user      ON action_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_bookmarks     ON bookmarks(user_id, book_id);
 CREATE INDEX IF NOT EXISTS idx_book_images   ON book_images(book_id);
 CREATE INDEX IF NOT EXISTS idx_game_total    ON game_saves(pages_total);
+CREATE INDEX IF NOT EXISTS idx_news_created  ON news(created_at);
 """
 
 # Столбцы, добавленные после первой версии. Если база создана старой версией

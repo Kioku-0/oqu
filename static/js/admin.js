@@ -20,18 +20,80 @@ Oqu.router.add(/^\/admin(?:\/(\w+))?$/, async (view, [tab]) => {
         ["unban", "admin.unban", "unban.manage"],
         ["students", "admin.students", "user.verify_student"],
         ["log", "admin.log", "log.read"],
+        ["news", "admin.news", "news.manage"],
+        ["present", "admin.present", "present.control"],
     ].filter(([, , perm]) => can(perm));
     if (!tabs.length) { view.innerHTML = emptyState("lock", t("error.forbidden_title"), t("error.forbidden")); return; }
     tab = tabs.some(([k]) => k === tab) ? tab : tabs[0][0];
     setTitle(t("nav.admin"));
     view.innerHTML = `<div class="page-head"><div><h1>${esc(t("nav.admin"))}</h1>
         <p class="muted" style="margin:0">${esc(t("admin.lead", { role: t("role." + Oqu.state.user.role) }))}</p></div></div>
-      <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${k === tab}">${icon({ users: "user", unban: "lock", students: "cap", log: "clock" }[k])}${esc(t(l))}</button>`).join("")}</div>
+      <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${k === tab}">${icon({ users: "user", unban: "lock", students: "cap", log: "clock", news: "chat", present: "chart" }[k])}${esc(t(l))}</button>`).join("")}</div>
       <div id="admin-body"></div>`;
     $$("[data-tab]").forEach((b) => b.addEventListener("click", () => { location.hash = "#/admin/" + b.dataset.tab; }));
     const body = $("#admin-body");
-    await { users: usersTab, unban: unbanTab, students: studentsTab, log: logTab }[tab](body);
+    await { users: usersTab, unban: unbanTab, students: studentsTab, log: logTab, news: newsTab, present: presentTab }[tab](body);
 }, { auth: true });
+
+/* ---------- Новости и конкурсы (редактор, владелец) ------------------- */
+async function newsTab(body) {
+    let page = 1;
+    body.innerHTML = `<div class="admin-filters"><button class="btn primary" id="n-add">${icon("plus")}${esc(t("news.add"))}</button></div><div id="n-list"></div>`;
+    $("#n-add").addEventListener("click", addNews);
+    async function load() {
+        const d = await api(`/api/news?page=${page}&page_size=10`);
+        $("#n-list").innerHTML = d.items.length ? `<div class="news-admin">${d.items.map((n) => `<div class="news-row">
+            ${Oqu.newsCard(n)}<button class="btn sm ghost" data-ndel="${n.id}" data-title="${esc(n.title)}" title="${esc(t("common.delete"))}">${icon("trash", "i-sm")}</button></div>`).join("")}</div>
+            ${pager(d, (n) => { page = n; load(); })}` : emptyState("chat", t("news.empty"));
+        $$("[data-ndel]").forEach((b) => b.addEventListener("click", async () => {
+            if (!await confirmDialog({ title: t("news.delete_q", { t: b.dataset.title }), danger: true, ok: t("common.delete") })) return;
+            try { await api(`/api/news/${b.dataset.ndel}`, { method: "DELETE" }); toast(t("news.deleted"), "ok"); load(); }
+            catch (e) { toastError(e); }
+        }));
+    }
+    async function addNews() {
+        const data = await formDialog({
+            title: t("news.add"), ok: t("news.publish"),
+            fields: [
+                { name: "kind", label: t("news.f_kind"), type: "select", value: "contest",
+                  options: ["contest", "marathon", "event", "update"].map((k) => ({ value: k, label: t("news.kind." + k) })) },
+                { name: "title", label: t("news.f_title"), required: true, max: 120 },
+                { name: "body", label: t("news.f_body"), type: "textarea", max: 2000 },
+                { name: "prize", label: t("news.f_prize"), max: 200 },
+                { name: "ends", label: t("news.f_ends"), type: "date" },
+                { name: "link", label: t("news.f_link"), max: 200, hint: "#/catalog, #/book/3, #/game" },
+                { name: "pinned", label: t("news.f_pinned"), type: "select", value: "0",
+                  options: [{ value: "0", label: t("common.no") }, { value: "1", label: t("common.yes") }] },
+            ],
+        });
+        if (!data) return;
+        try {
+            await api("/api/news", { method: "POST", body: {
+                kind: data.kind, title: data.title, body: data.body, prize: data.prize, link: data.link.trim(),
+                ends_at: data.ends ? `${data.ends} 18:59:59` : null,   // конец дня по Кызылорде (UTC+5)
+                pinned: data.pinned === "1" } });
+            toast(t("news.added"), "ok");
+            page = 1; load();
+        } catch (e) { toastError(e); }
+    }
+    await load();
+}
+
+/* ---------- Презентация для защиты (только владелец) ----------------- */
+async function presentTab(body) {
+    const url = location.origin + "/present";
+    body.innerHTML = `<div class="present-admin">
+        <div class="card-like"><h2 style="margin-top:0">${esc(t("present.title"))}</h2>
+          <p class="muted">${esc(t("present.lead"))}</p>
+          <div class="btn-row"><a class="btn primary" href="/present" target="_blank" rel="noopener">${icon("chart")}${esc(t("present.open"))}</a>
+            <a class="btn" href="/present?mode=remote" target="_blank" rel="noopener">${esc(t("present.remote"))}</a>
+            <button class="btn ghost" id="p-reset">${esc(t("present.reset"))}</button></div>
+          <p class="small muted" style="margin-bottom:0">${esc(t("present.phone", { url }))}</p></div></div>`;
+    $("#p-reset").addEventListener("click", async () => {
+        try { await api("/api/present/control", { method: "POST", body: { action: "reset" } }); toast(t("present.reset_done"), "ok"); }
+        catch (e) { toastError(e); }
+    });
+}
 
 /* ---------- Пользователи --------------------------------------------- */
 async function usersTab(body) {

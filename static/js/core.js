@@ -329,7 +329,7 @@ function showServerFieldErrors(form, err) {
 
 /* ---------- Пользователь и права ---------------------------------------- */
 const can = (perm) => !!(Oqu.state.user && Oqu.state.user.permissions.includes(perm));
-const isStaff = () => can("user.list") || can("log.read");
+const isStaff = () => can("user.list") || can("log.read") || can("news.manage");
 
 async function loadMe() {
     if (!tokens.access && !tokens.refresh) { Oqu.state.user = null; return; }
@@ -950,6 +950,6 @@ Object.assign(Oqu, { $, $$, esc, icon, t, plural, api, ApiError, errorText, can,
     toastError, openModal, closeModal, confirmDialog, formDialog, openAuth, requireLogin, setTitle, emptyState,
     cover, starsMini, pager, fmtDate, fmtAgo, fmtNum, avatar, roleBadge, loadMe, renderChrome, debounce, setLang,
     setTheme, applyStaticI18n, validateForm, showServerFieldErrors, setFieldError, clearFieldError,
-    coverPattern, hash });
+    coverPattern, hash, parseUtc });
 
 document.addEventListener("DOMContentLoaded", boot);

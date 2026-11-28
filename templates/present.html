@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru" data-v="{{v}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0f6e5a">
+<title>Оқу · Презентация</title>
+<link rel="icon" href="/static/img/favicon.svg?v={{v}}" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/present.css?v={{v}}">
+<script src="/static/js/present.js?v={{v}}" defer></script>
+</head>
+<body>
+<!-- Экран входа / нет прав -->
+<div id="gate" class="gate" hidden>
+  <div class="gate-card">
+    <img src="/static/img/logo.svg?v={{v}}" alt="" width="56" height="56">
+    <h1>Презентация «Оқу»</h1>
+    <p id="gate-text">Проверяю вход…</p>
+    <a class="btn primary" id="gate-login" href="/#/login" hidden>Войти на сайте</a>
+    <a class="btn" href="/">На сайт</a>
+  </div>
+</div>
+
+<!-- Режим доски: слева сайт, справа слайды -->
+<div id="board" class="board" hidden>
+  <section class="site-pane" id="site-pane">
+    <iframe id="site" title="Сайт «Оқу»" src="about:blank"></iframe>
+  </section>
+  <div class="divider" id="divider" role="separator" aria-orientation="vertical" title="Потяните, чтобы изменить ширину"></div>
+  <section class="slide-pane">
+    <header class="bar">
+      <span class="who" id="who"></span>
+      <div class="timer" id="timer"><b id="t-main">00:00</b><small id="t-sub">/ 10:00</small></div>
+      <span class="delta" id="delta"></span>
+      <span class="count" id="count">1 / 10</span>
+    </header>
+    <div class="track" id="track"></div>
+    <main class="slide" id="slide"></main>
+    <div class="notes" id="board-notes" hidden></div>
+    <footer class="controls">
+      <button class="btn" id="b-prev" title="Назад (←)">←</button>
+      <button class="btn primary" id="b-next" title="Вперёд (→, пробел)">Вперёд →</button>
+      <span class="grow"></span>
+      <button class="btn ghost" id="b-pause" title="Пауза (P)">Пауза</button>
+      <button class="btn ghost" id="b-site" title="Скрыть/показать сайт (H)">Сайт</button>
+      <button class="btn ghost" id="b-popup" title="Открыть сайт в отдельном окне">Окно</button>
+      <button class="btn ghost" id="b-notes" title="Речь (N)">Речь</button>
+      <button class="btn ghost" id="b-full" title="Во весь экран (F)">⛶</button>
+    </footer>
+  </section>
+</div>
+
+<!-- Режим пульта (телефон) -->
+<div id="remote" class="remote" hidden>
+  <header class="r-head">
+    <div class="timer big" id="r-timer"><b id="r-main">00:00</b><small id="r-sub">/ 10:00</small></div>
+    <span class="delta" id="r-delta"></span>
+    <div class="track" id="r-track"></div>
+  </header>
+  <div class="r-body">
+    <div class="r-now"><span class="who" id="r-who"></span><span class="count" id="r-count"></span></div>
+    <h2 id="r-title"></h2>
+    <p class="r-next" id="r-nexttitle"></p>
+    <div class="r-notes" id="r-notes"></div>
+    <details class="r-ask" id="r-askbox"><summary>Если спросят</summary><ul id="r-ask"></ul></details>
+    <div class="r-tools">
+      <button class="btn" id="r-start">Начать заново</button>
+      <button class="btn" id="r-pause">Пауза</button>
+      <select class="select" id="r-jump" aria-label="Перейти к слайду"></select>
+      <button class="btn ghost" id="r-board">Режим доски</button>
+    </div>
+  </div>
+  <footer class="r-pad">
+    <button class="btn huge" id="r-prev">←</button>
+    <button class="btn primary huge" id="r-next">Вперёд →</button>
+  </footer>
+</div>
+
+<!-- Заставка до старта таймера -->
+<div id="start" class="start" hidden>
+  <div class="start-card">
+    <img src="/static/img/logo.svg?v={{v}}" alt="" width="64" height="64">
+    <h1 id="start-title">Оқу</h1>
+    <p>Таймер 10:00: 8 минут доклад, 2 минуты вопросы.<br>Слайды переключаются и здесь, и на телефоне.</p>
+    <button class="btn primary huge" id="start-go">▶ Начать презентацию</button>
+    <p class="small">Клавиши: → / пробел — вперёд, ← — назад, P — пауза, H — сайт, N — речь, F — весь экран.<br>Пульт: откройте эту же страницу на телефоне под своим аккаунтом.</p>
+  </div>
+</div>
+</body>
+</html>

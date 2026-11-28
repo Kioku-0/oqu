@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -118,7 +119,7 @@ PERMISSIONS: dict[str, set[str]] = {
                             "unban.manage"},
     # Редактор работает с книгами и комментариями к ним.
     "editor": _READER | {"book.read_paid", "book.add", "book.edit",
-                         "book.delete", "comment.delete_any"},
+                         "book.delete", "comment.delete_any", "news.manage"},
     # Главный разработчик получает все права (см. has_permission).
     "owner": set(),
 }
@@ -148,7 +149,9 @@ def permissions_of(role: str) -> list[str]:
         every: set[str] = set()
         for perms in PERMISSIONS.values():
             every |= perms
-        return sorted(every | {"user.assign_role", "user.delete"})
+        # present.control — пульт презентации для защиты, только владелец.
+        return sorted(every | {"user.assign_role", "user.delete",
+                               "present.control"})
     return sorted(PERMISSIONS.get(role, set()))
 
 
@@ -1578,3 +1581,139 @@ def popular_tags(db: sqlite3.Connection,
                       "ORDER BY count DESC, t.name LIMIT ?",
                       (limit,)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Новости на главной: обновления, конкурсы, марафоны, события
+# ---------------------------------------------------------------------------
+NEWS_KINDS = ("update", "contest", "marathon", "event")
+MAX_NEWS_TITLE = 120
+MAX_NEWS_BODY = 2000
+
+
+def _check_news_link(link: str) -> str:
+    """Ссылка новости ведёт только внутрь сайта (#/...) или на /docs —
+    так в новость нельзя подсунуть адрес чужого сайта."""
+    link = (link or "").strip()
+    if link and not re.fullmatch(r"(#/[\w\-/?=&%.]*|/docs)", link):
+        raise ValidationError("Ссылка новости должна вести внутрь сайта "
+                              "(начинаться с #/)")
+    return link
+
+
+def add_news(db: sqlite3.Connection, actor: sqlite3.Row, *, kind: str,
+             title: str, body: str = "", link: str = "", prize: str = "",
+             ends_at: Optional[str] = None, pinned: bool = False) -> int:
+    """Опубликовать новость (право ``news.manage``: редактор, владелец)."""
+    require_permission(actor["role"], "news.manage")
+    if kind not in NEWS_KINDS:
+        raise ValidationError("Неизвестный тип новости")
+    title = (title or "").strip()
+    body = (body or "").strip()
+    if not title:
+        raise ValidationError("Заголовок новости не может быть пустым")
+    if len(title) > MAX_NEWS_TITLE or len(body) > MAX_NEWS_BODY:
+        raise ValidationError("Слишком длинная новость")
+    if ends_at:
+        try:
+            _parse(ends_at)
+        except ValueError:
+            raise ValidationError("Неверный формат срока") from None
+    cur = db.execute(
+        "INSERT INTO news(kind, title, body, link, prize, ends_at, pinned, "
+        "created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (kind, profanity.censor(title), profanity.censor(body),
+         _check_news_link(link), (prize or "").strip()[:200],
+         ends_at or None, int(bool(pinned)), actor["id"], _now_str()))
+    db.commit()
+    return cur.lastrowid
+
+
+def list_news(db: sqlite3.Connection, *, page: int = 1, page_size: int = 6,
+              kind: str = "") -> dict[str, Any]:
+    """Новости постранично: сначала закреплённые, потом свежие."""
+    where, args = "", []
+    if kind:
+        if kind not in NEWS_KINDS:
+            raise ValidationError("Неизвестный тип новости")
+        where, args = "WHERE kind = ?", [kind]
+    return _paginate(
+        db, "SELECT id, kind, title, body, link, prize, ends_at, pinned, "
+            f"created_at FROM news {where} "
+            "ORDER BY pinned DESC, created_at DESC, id DESC",
+        f"SELECT COUNT(*) FROM news {where}", args, page, page_size)
+
+
+def delete_news(db: sqlite3.Connection, actor: sqlite3.Row,
+                news_id: int) -> None:
+    """Удалить новость."""
+    require_permission(actor["role"], "news.manage")
+    cur = db.execute("DELETE FROM news WHERE id = ?", (int(news_id),))
+    db.commit()
+    if not cur.rowcount:
+        raise NotFoundError("Новость не найдена")
+
+
+# ---------------------------------------------------------------------------
+# Живая презентация для защиты: слайд и таймер общие для всех экранов
+# (ноутбук у доски и телефон-пульт). Управляет только владелец.
+# ---------------------------------------------------------------------------
+PRESENT_SLIDES = 10
+PRESENT_ACTIONS = ("goto", "next", "prev", "start", "pause", "resume",
+                   "reset")
+
+
+def get_present_state(db: sqlite3.Connection,
+                      now: Optional[float] = None) -> dict[str, Any]:
+    """Текущий слайд и таймер. ``elapsed`` — сколько секунд идёт показ."""
+    now = time.time() if now is None else now
+    row = db.execute("SELECT * FROM present_state WHERE id = 1").fetchone()
+    if row is None:
+        return {"slide": 0, "running": False, "started": False,
+                "elapsed": 0.0, "rev": 0, "server_time": now}
+    started = row["started_at"] is not None
+    end = row["paused_at"] if row["paused_at"] is not None else now
+    elapsed = max(0.0, end - row["started_at"]) if started else 0.0
+    return {"slide": row["slide"], "started": started,
+            "running": started and row["paused_at"] is None,
+            "elapsed": round(elapsed, 2), "rev": row["rev"],
+            "server_time": now}
+
+
+def control_present(db: sqlite3.Connection, actor: sqlite3.Row, action: str,
+                    slide: Optional[int] = None,
+                    now: Optional[float] = None) -> dict[str, Any]:
+    """Переключить слайд или управлять таймером (пульт презентации)."""
+    require_permission(actor["role"], "present.control")
+    if action not in PRESENT_ACTIONS:
+        raise ValidationError("Неизвестная команда пульта")
+    now = time.time() if now is None else now
+    db.execute("INSERT OR IGNORE INTO present_state(id) VALUES (1)")
+    row = db.execute("SELECT * FROM present_state WHERE id = 1").fetchone()
+    cur_slide, started_at, paused_at = (row["slide"], row["started_at"],
+                                        row["paused_at"])
+    last = PRESENT_SLIDES - 1
+    if action == "goto":
+        if slide is None or not 0 <= int(slide) <= last:
+            raise ValidationError(f"Номер слайда от 0 до {last}")
+        cur_slide = int(slide)
+    elif action == "next":
+        cur_slide = min(last, cur_slide + 1)
+    elif action == "prev":
+        cur_slide = max(0, cur_slide - 1)
+    elif action == "start":
+        # Старт всегда с нуля и с первого слайда.
+        started_at, paused_at, cur_slide = now, None, 0
+    elif action == "pause" and started_at is not None and paused_at is None:
+        paused_at = now
+    elif action == "resume" and paused_at is not None:
+        # Сдвигаем старт на длину паузы — время паузы не считается.
+        started_at += now - paused_at
+        paused_at = None
+    elif action == "reset":
+        started_at, paused_at, cur_slide = None, None, 0
+    db.execute("UPDATE present_state SET slide = ?, started_at = ?, "
+               "paused_at = ?, rev = rev + 1 WHERE id = 1",
+               (cur_slide, started_at, paused_at))
+    db.commit()
+    return get_present_state(db, now)
